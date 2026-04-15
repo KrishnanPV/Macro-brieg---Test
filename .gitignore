@@ -1,0 +1,43 @@
+# Project-specific (local scripts / reference docs)
+macro_kpi_extract.py
+oxford_eap_fetch.py
+prompts.txt
+
+# Python
+__pycache__/
+*.py[cod]
+$py.class
+*.egg-info/
+.eggs/
+*.egg
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Secrets / local config
+.env
+.env.local
+.env.*.local
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+
+# Outputs
+output/
+
+# Database
+data/
+
+# Miscellaneous
+COMMIT_MSG
+old_insights/
+plan/
+.cursor/
+*.html
+*.txt

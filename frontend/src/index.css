@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+@theme {
+  --color-mck-navy: #051C2C;
+  --color-mck-blue: #2251FF;
+  --color-mck-deep: #24477F;
+  --color-mck-sky: #4B8BBE;
+  --color-mck-light: #7CA5C2;
+  --color-mck-pale: #A8BFD0;
+  --color-mck-body: #333333;
+}

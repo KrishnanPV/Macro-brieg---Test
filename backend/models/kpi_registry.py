@@ -1,0 +1,615 @@
+"""KPI specifications, insight lenses, and news query templates."""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+
+
+# ---------------------------------------------------------------------------
+# KPI catalogue
+# ---------------------------------------------------------------------------
+
+@dataclass
+class KpiSpec:
+    id: str
+    name: str
+    source: str          # "oxford" | "imf"
+    frequency: str       # "Q" | "A"
+    indicators: list[str]
+    timerange_env: str
+    notes: str = ""
+
+
+def _kpi_specs() -> list[KpiSpec]:
+    return [
+        KpiSpec("1", "GDP - Nominal (Split by industry)", "oxford", "Q",
+                ["GDP, agriculture", "GDP, industry", "GDP, manufacturing", "GDP, services"],
+                "EAP_TIMERANGE_Q",
+                "Sector GDP in LCU (current prices)."),
+        KpiSpec("2", "GDP - Real (Split by industry)", "oxford", "Q",
+                ["GDP, oil, real, LCU", "GDP, non-oil, real, LCU", "GDP, manufacturing", "GDP, services"],
+                "EAP_TIMERANGE_Q",
+                "Real-side lens: oil vs non-oil plus manufacturing & services."),
+        KpiSpec("3", "GDP growth by economic activity", "oxford", "Q",
+                ["GDP real, annual growth"],
+                "EAP_TIMERANGE_Q",
+                "Aggregate real GDP growth (y/y)."),
+        KpiSpec("4", "FDI inflow & outflow", "oxford", "Q",
+                ["Foreign direct investment, inward", "Foreign direct investment, outward"],
+                "EAP_TIMERANGE_Q",
+                "Dual-line time series."),
+        KpiSpec("5", "Unemployment rate, %", "oxford", "A",
+                ["Unemployment rate"],
+                "EAP_TIMERANGE_A",
+                "Annual."),
+        KpiSpec("6", "Consumption, private, PPP exchange rate, real", "oxford", "A",
+                ["Consumption, private, PPP exchange rate, real"],
+                "EAP_TIMERANGE_A"),
+        KpiSpec("7", "Inflation - Consumer price index", "oxford", "Q",
+                ["Inflation, consumer price index - % year-on-year"],
+                "EAP_TIMERANGE_Q",
+                "YoY CPI inflation."),
+        KpiSpec("8", "External debt, total, share of GDP", "oxford", "Q",
+                ["External debt, total, share of GDP"],
+                "EAP_TIMERANGE_Q"),
+        KpiSpec("9", "Population, total", "oxford", "A",
+                ["Population, total"],
+                "EAP_TIMERANGE_A"),
+        KpiSpec("10", "GDP contribution from GDP categories (expenditure / NEA)", "imf", "A",
+                [], "EAP_TIMERANGE_A",
+                "IMF NEA — not available via Oxford EAP."),
+    ]
+
+
+SPECS = _kpi_specs()
+SPECS_BY_ID: dict[str, KpiSpec] = {s.id: s for s in SPECS}
+_KPI_CATALOG_ORDER: dict[str, int] = {s.id: i for i, s in enumerate(SPECS)}
+
+
+def sorted_kpi_ids(ids: list[str]) -> list[str]:
+    """Catalog order (1…10 as in SPECS)."""
+    return sorted(ids, key=lambda k: (_KPI_CATALOG_ORDER.get(k, len(SPECS)), k))
+
+
+# ---------------------------------------------------------------------------
+# Per-KPI Insight Lens Registry
+# ---------------------------------------------------------------------------
+
+@dataclass
+class InsightLens:
+    headline: str
+    notability_cues: list[str]
+    context_hooks: list[str] = field(default_factory=list)
+    forbidden_claims: list[str] = field(default_factory=list)
+    units_note: str = ""
+    narrative_guidance: list[str] = field(default_factory=list)
+
+
+INSIGHT_LENSES: dict[str, InsightLens] = {
+    "1": InsightLens(
+        headline="Nominal GDP by Sector",
+        notability_cues=[
+            "Sector-share shifts >5pp between periods signal structural change (diversification or concentration).",
+            "Cross-country outliers where the dominant sector differs from regional norms.",
+        ],
+        context_hooks=[
+            "National economic diversification programs (e.g. Saudi Vision 2030, UAE Economic Vision 2030, Qatar National Vision 2030).",
+            "Sector-specific industrial policy, privatization drives, or mega-project spending (e.g. NEOM, tourism gigaprojects).",
+            "Commodity price cycles and their pass-through to nominal GDP composition.",
+        ],
+        forbidden_claims=[
+            "Do not infer real growth from nominal series — nominal changes can reflect price, not output.",
+            "Do not compare absolute LCU values across countries with different currencies.",
+        ],
+        units_note="Local currency units at current prices (nominal). Synthesize sectors — do not bullet each one separately.",
+        narrative_guidance=[
+            "Frame sector composition as a diversification narrative: which sectors are gaining share and why.",
+            "Connect share shifts to named policy programs or structural forces — never present shares in isolation.",
+            "Synthesize agriculture, industry, and services into a single composition story; do not bullet each sector separately.",
+        ],
+    ),
+    "2": InsightLens(
+        headline="Real GDP by Industry (Oil vs Non-Oil)",
+        notability_cues=[
+            "Oil-vs-non-oil growth divergence — non-oil growing faster is a diversification signal.",
+            "Sharp drops in oil GDP (volume) suggesting production cuts or demand shocks.",
+        ],
+        context_hooks=[
+            "OPEC+ production agreements, voluntary production cuts, and quota compliance.",
+            "Economic diversification milestones and non-oil sector reform programs.",
+            "Global energy transition pressures and their impact on hydrocarbon-dependent economies.",
+        ],
+        forbidden_claims=[
+            "Do not attribute oil GDP changes to price — this is a real (volume) series.",
+            "Do not claim diversification from a single quarter of non-oil growth.",
+        ],
+        units_note="Real LCU (constant prices). Report the oil/non-oil split, not each sub-sector individually.",
+        narrative_guidance=[
+            "Lead with the oil/non-oil divergence narrative — state which is outpacing and by how much.",
+            "Connect oil-GDP volume changes to specific OPEC+ decisions or production events, not price.",
+            "Frame non-oil acceleration as a structural story: name the sectors driving it (services, manufacturing, tourism).",
+        ],
+    ),
+    "3": InsightLens(
+        headline="Real GDP Growth (YoY)",
+        notability_cues=[
+            "Growth inflection points — sign changes or swings >2pp between periods.",
+            "Cross-country growth-rate spread: wide dispersion implies divergent cyclical positions.",
+            "Consecutive negative quarters (technical recession) vs isolated dips.",
+        ],
+        context_hooks=[
+            "Fiscal stimulus or austerity programs, government spending plans, and budget announcements.",
+            "Monetary policy stance (central bank rate decisions, currency pegs, liquidity management).",
+            "OPEC+ production decisions affecting oil-GDP volume for producer economies.",
+            "Global demand shocks, trade disruptions, or pandemic recovery trajectories.",
+        ],
+        forbidden_claims=[
+            "Do not describe quarter-on-quarter seasonally adjusted growth — data is year-on-year.",
+            "Do not attribute growth to sectors unless sector data is in the payload.",
+        ],
+        units_note="Year-on-year %.",
+        narrative_guidance=[
+            "Frame growth relative to the country's own trend and regional peers; always connect to the primary growth driver.",
+            "Use the contrast pattern when growth diverges from expectations: '[Country] grew X%, [but/despite] [counterpoint].'",
+            "For oil-dependent economies, distinguish oil-volume-driven growth from broad-based expansion.",
+        ],
+    ),
+    "4": InsightLens(
+        headline="FDI Inflow & Outflow",
+        notability_cues=[
+            "Net FDI position (inward minus outward) and what it signals about capital-flow direction.",
+            "Abrupt reversals or large swings in inward FDI between quarters.",
+            "Order-of-magnitude differences in FDI scale across countries.",
+        ],
+        context_hooks=[
+            "Investment law reforms, foreign ownership liberalization, and special economic zone launches.",
+            "Bilateral investment treaties, free trade agreements, and WTO/accession developments.",
+            "Sovereign wealth fund deployment strategies (e.g. PIF, ADIA, QIA outward investment).",
+            "Geopolitical risk events or sanctions affecting capital flow direction.",
+        ],
+        forbidden_claims=[
+            "Do not conflate FDI with portfolio flows or remittances.",
+            "Do not claim FDI causes GDP growth — causality is ambiguous.",
+        ],
+        narrative_guidance=[
+            "Always frame the net FDI position (inward minus outward) before discussing individual flows.",
+            "Connect FDI swings to specific policy reforms, zone launches, or geopolitical events.",
+            "Use the institutional anchor pattern when citing investment climate rankings or projections.",
+        ],
+    ),
+    "5": InsightLens(
+        headline="Unemployment Rate",
+        notability_cues=[
+            "Cumulative change >2pp over the window — strong structural shift.",
+            "Rates near frictional floor (2-3%) vs elevated slack (>8%) and what each means.",
+            "GCC-specific context: visa-based labor systems can mask true labor-market tightness.",
+        ],
+        context_hooks=[
+            "Labor nationalization programs (e.g. Saudization/Nitaqat, Emiratisation, Omanisation).",
+            "Labor law reforms, minimum wage changes, and gig/platform economy regulation.",
+            "Expatriate levy or fee changes that affect workforce composition.",
+            "Public sector hiring drives vs private sector employment targets.",
+        ],
+        forbidden_claims=[
+            "Do not infer youth unemployment, underemployment, or participation from the aggregate rate.",
+        ],
+        units_note="Percentage (%).",
+        narrative_guidance=[
+            "Frame the rate within the country's labor-market structure — distinguish visa-based systems from open labor markets.",
+            "Connect rate movements to specific nationalization programs or labor law reforms.",
+            "For GCC economies, note that headline unemployment may not capture the expatriate workforce dynamic.",
+        ],
+    ),
+    "6": InsightLens(
+        headline="Private Consumption (Real PPP)",
+        notability_cues=[
+            "Consumption growth >5% signals consumer-driven expansion; sub-1% signals stagnation.",
+            "Consumption growing faster than GDP implies rebalancing toward domestic demand.",
+        ],
+        context_hooks=[
+            "Consumer subsidy reforms, fuel/electricity price adjustments, and VAT changes.",
+            "Wage growth policies, citizen allowance programs, and cost-of-living support measures.",
+            "Credit expansion or tightening by domestic banking sectors.",
+            "Tourism and entertainment sector openings that boost domestic spending.",
+        ],
+        forbidden_claims=[
+            "Do not infer per-capita consumption without population data from KPI 9 in the payload.",
+        ],
+        units_note="Real PPP-adjusted. Annual frequency.",
+        narrative_guidance=[
+            "Position consumption relative to GDP growth: is domestic demand leading or lagging the expansion?",
+            "Name the transmission channel — credit conditions, wage policy, subsidy reform, VAT — that explains the consumer spending trajectory.",
+            "Use the contrast pattern when consumption diverges from inflation or income trends.",
+        ],
+    ),
+    "7": InsightLens(
+        headline="CPI Inflation (YoY)",
+        notability_cues=[
+            "Trend direction: acceleration (>1pp rise q/q) vs disinflation vs deflation (only if negative).",
+            "Cross-country spread — large divergence implies different monetary/supply regimes.",
+            "Breaching central-bank comfort zones (2% advanced, 3-5% emerging) and policy bias it implies.",
+        ],
+        context_hooks=[
+            "Central bank rate decisions (including Fed-linked pegged-currency rate pass-through).",
+            "Administered price reforms: subsidy removal, fuel/electricity price deregulation.",
+            "VAT introduction, rate changes, or excise tax expansions.",
+            "Global commodity price pass-through (food, energy) and supply chain disruptions.",
+        ],
+        forbidden_claims=[
+            "Do not label 'deflation' unless YoY CPI is actually negative.",
+            "Do not prescribe interest-rate actions — frame as directional bias only.",
+        ],
+        units_note="Year-on-year %.",
+        narrative_guidance=[
+            "Distinguish between cost-push and demand-pull dynamics; always mention the monetary policy regime (peg vs float) and its implications.",
+            "State the CPI figure once with comparative framing ('X% vs Y% in the prior period') — do not repeat the same number across sentences.",
+            "For pegged-currency economies, explain the interest-rate pass-through from the anchor central bank (e.g., Fed).",
+        ],
+    ),
+    "8": InsightLens(
+        headline="External Debt (% GDP)",
+        notability_cues=[
+            "Level thresholds: <30% manageable, 30-60% warrants monitoring, >60% sustainability concern.",
+            "Rapid increases (>5pp/year) — distinguish borrowing-driven from GDP-contraction-driven.",
+        ],
+        context_hooks=[
+            "Sovereign bond issuances (Eurobonds, sukuk) and their stated purpose.",
+            "IMF program agreements, World Bank development financing, and credit rating actions.",
+            "Fiscal consolidation plans, medium-term fiscal frameworks, and debt management strategies.",
+            "Currency peg defense costs and reserve adequacy considerations.",
+        ],
+        forbidden_claims=[
+            "Do not make definitive sustainability claims — depends on rates, currency, maturity, reserves.",
+            "Do not conflate total external debt with government debt.",
+        ],
+        units_note="Percentage of GDP (%).",
+        narrative_guidance=[
+            "Distinguish whether debt-ratio changes are borrowing-driven or GDP-denominator-driven.",
+            "Connect debt movements to specific issuances (sukuk, Eurobonds) or fiscal consolidation programs.",
+            "Use hedged language ('warrants monitoring', 'consistent with') — avoid definitive sustainability verdicts.",
+        ],
+    ),
+    "9": InsightLens(
+        headline="Population",
+        notability_cues=[
+            "Growth rate >2% is high globally (immigration or high fertility); <1% is demographic maturity.",
+            "Large scale differences across countries and implications for market size and labor supply.",
+        ],
+        context_hooks=[
+            "Immigration policy changes: visa reforms, long-term residency programs (e.g. Golden Visa, Premium Residency).",
+            "Expatriate levy or quota changes affecting migrant worker inflows/outflows.",
+            "Mega-project construction booms driving temporary labor importation.",
+            "Demographic policy and social reform programs (housing, family support).",
+        ],
+        forbidden_claims=[
+            "Do not infer GDP per capita unless GDP data is in the payload.",
+            "Do not infer age structure or urbanization from total population alone.",
+        ],
+        units_note="Express in millions to 2 dp or whole numbers. Annual.",
+        narrative_guidance=[
+            "Frame population growth as a structural story — distinguish migration-driven growth from natural increase.",
+            "Connect population dynamics to labor market implications: workforce expansion, dependency ratios, market sizing.",
+            "For GCC economies, link population changes to specific visa or residency policy reforms.",
+        ],
+    ),
+    "10": InsightLens(
+        headline="IMF NEA",
+        notability_cues=[
+            "No data available — IMF NEA is not sourced via Oxford EAP.",
+        ],
+        context_hooks=[],
+        forbidden_claims=[
+            "Do not fabricate GDP expenditure components.",
+        ],
+        narrative_guidance=[
+            "If expenditure-side data is unavailable, do not attempt to reconstruct it from other KPIs.",
+        ],
+    ),
+}
+
+
+# ---------------------------------------------------------------------------
+# Country → currency mapping (ISO 4217)
+# ---------------------------------------------------------------------------
+
+ISO3_TO_CURRENCY: dict[str, str] = {
+    "SAU": "SAR", "ARE": "AED", "QAT": "QAR", "KWT": "KWD",
+    "BHR": "BHD", "OMN": "OMR", "USA": "USD", "GBR": "GBP",
+    "DEU": "EUR", "FRA": "EUR", "JPN": "JPY", "CHN": "CNY",
+    "IND": "INR", "BRA": "BRL", "EGY": "EGP", "ZAF": "ZAR",
+    "NGA": "NGN", "TUR": "TRY", "IDN": "IDR", "MEX": "MXN",
+}
+
+CURRENCY_NAMES: dict[str, str] = {
+    "SAR": "Saudi Riyal", "AED": "UAE Dirham", "QAR": "Qatari Riyal",
+    "KWD": "Kuwaiti Dinar", "BHD": "Bahraini Dinar", "OMR": "Omani Rial",
+    "USD": "US Dollar", "GBP": "British Pound", "EUR": "Euro",
+    "JPY": "Japanese Yen", "CNY": "Chinese Yuan", "INR": "Indian Rupee",
+    "BRL": "Brazilian Real", "EGP": "Egyptian Pound", "ZAR": "South African Rand",
+    "NGN": "Nigerian Naira", "TRY": "Turkish Lira", "IDR": "Indonesian Rupiah",
+    "MXN": "Mexican Peso",
+}
+
+
+def resolve_unit_label(raw_unit: str, country_iso3: str = "") -> str:
+    """Turn Oxford's raw unit string into a concise, country-resolved label.
+
+    Examples:
+        'Riyal, Millions: 2023 prices' → 'SAR millions (2023 prices)'
+        'US$, Millions'                → 'USD millions'
+        '% year'                       → '% year'
+        'Person, Thousands'            → 'thousands'
+    """
+    if not raw_unit:
+        return ""
+
+    text = raw_unit.strip()
+    ccy = ISO3_TO_CURRENCY.get(country_iso3, "")
+
+    # Currency-denominated units: 'Riyal, Millions: 2023 prices'
+    _CURRENCY_WORDS = {
+        "riyal": ccy or "LCU",
+        "dirham": ccy or "LCU",
+        "dinar": ccy or "LCU",
+        "rial": ccy or "LCU",
+        "pound": ccy or "LCU",
+        "rupee": ccy or "LCU",
+        "real": ccy or "LCU",
+        "yuan": ccy or "LCU",
+        "yen": ccy or "LCU",
+        "naira": ccy or "LCU",
+        "lira": ccy or "LCU",
+        "rupiah": ccy or "LCU",
+        "peso": ccy or "LCU",
+        "rand": ccy or "LCU",
+        "euro": ccy or "LCU",
+    }
+
+    lower = text.lower()
+
+    # US$ → USD directly
+    if lower.startswith("us$"):
+        rest = text[3:].strip().lstrip(",").strip()
+        parts = rest.split(":")
+        scale_part = parts[0].strip().lower() if parts else ""
+        qualifier = parts[1].strip() if len(parts) > 1 else ""
+        label = f"USD {scale_part}" if scale_part else "USD"
+        if qualifier:
+            label += f" ({qualifier})"
+        return label
+
+    # Named currency (Riyal, Dirham, etc.)
+    for word, code in _CURRENCY_WORDS.items():
+        if word in lower:
+            rest = text.split(",", 1)[1].strip() if "," in text else ""
+            parts = rest.split(":")
+            scale_part = parts[0].strip().lower() if parts else ""
+            qualifier = parts[1].strip() if len(parts) > 1 else ""
+            label = f"{code} {scale_part}" if scale_part else code
+            if qualifier:
+                label += f" ({qualifier})"
+            return label
+
+    # Percentages
+    if lower.startswith("%"):
+        return text
+
+    # Person / headcount
+    if "person" in lower:
+        rest = text.split(",", 1)[1].strip().lower() if "," in text else ""
+        return rest if rest else "persons"
+
+    return text
+
+
+# ---------------------------------------------------------------------------
+# Country lookups
+# ---------------------------------------------------------------------------
+
+ISO3_TO_ISO2: dict[str, str] = {
+    "SAU": "SA", "ARE": "AE", "QAT": "QA", "KWT": "KW",
+    "BHR": "BH", "OMN": "OM", "USA": "US", "GBR": "GB",
+    "DEU": "DE", "FRA": "FR", "JPN": "JP", "CHN": "CN",
+    "IND": "IN", "BRA": "BR", "EGY": "EG", "ZAF": "ZA",
+    "NGA": "NG", "TUR": "TR", "IDN": "ID", "MEX": "MX",
+}
+
+ISO3_TO_NAME: dict[str, str] = {
+    "SAU": "Saudi Arabia", "ARE": "United Arab Emirates", "QAT": "Qatar",
+    "KWT": "Kuwait", "BHR": "Bahrain", "OMN": "Oman",
+    "USA": "United States", "GBR": "United Kingdom", "DEU": "Germany",
+    "FRA": "France", "JPN": "Japan", "CHN": "China",
+    "IND": "India", "BRA": "Brazil", "EGY": "Egypt",
+    "ZAF": "South Africa", "NGA": "Nigeria", "TUR": "Turkey",
+    "IDN": "Indonesia", "MEX": "Mexico",
+}
+
+DEMONYMS: dict[str, list[str]] = {
+    "SAU": ["saudi", "ksa"],
+    "ARE": ["emirati", "uae", "dubai", "abu dhabi"],
+    "QAT": ["qatari", "doha"],
+    "KWT": ["kuwaiti"],
+    "BHR": ["bahraini"],
+    "OMN": ["omani"],
+    "USA": ["american", "us", "u.s."],
+    "GBR": ["british", "uk", "u.k."],
+    "DEU": ["german"],
+    "FRA": ["french"],
+    "JPN": ["japanese"],
+    "CHN": ["chinese"],
+    "IND": ["indian"],
+    "BRA": ["brazilian"],
+    "EGY": ["egyptian"],
+    "ZAF": ["south african"],
+    "NGA": ["nigerian"],
+    "TUR": ["turkish"],
+    "IDN": ["indonesian"],
+    "MEX": ["mexican"],
+}
+
+
+# ---------------------------------------------------------------------------
+# Newscatcher query templates per KPI
+# ---------------------------------------------------------------------------
+
+@dataclass
+class KpiNewsQuery:
+    query_template: str
+    themes: str
+    signal_terms: list[str] = field(default_factory=list)
+
+
+KPI_NEWS_QUERIES: dict[str, KpiNewsQuery] = {
+    "1": KpiNewsQuery(
+        query_template=(
+            '(GDP OR "gross domestic product" OR econom* OR "economic output" '
+            'OR industr* OR manufactur* OR services OR agriculture '
+            'OR "private sector" OR "public sector" OR "sectoral composition" '
+            'OR "value added" OR "economic activity" OR output OR production) '
+            'AND ({country})'
+        ),
+        themes="Economics,Finance,Business,Politics",
+        signal_terms=["GDP", "gross domestic product", "sector", "industry",
+                       "manufacturing", "services", "agriculture", "output",
+                       "value added", "economic activity", "production"],
+    ),
+    "2": KpiNewsQuery(
+        query_template=(
+            '(GDP OR "non-oil" OR "oil sector" OR "oil GDP" '
+            'OR "economic diversification" OR diversif* OR OPEC '
+            'OR "oil revenue" OR "oil production" OR petrochemical '
+            'OR hydrocarbon OR "oil dependence" OR "energy sector" '
+            'OR "non-oil growth" OR "private sector" OR "oil price" '
+            'OR "crude oil" OR "Vision 2030") '
+            'AND ({country})'
+        ),
+        themes="Economics,Finance,Business,Politics",
+        signal_terms=["oil", "non-oil", "diversification", "OPEC",
+                       "hydrocarbon", "petrochemical", "oil revenue",
+                       "oil production", "crude", "energy sector"],
+    ),
+    "3": KpiNewsQuery(
+        query_template=(
+            '(GDP OR growth OR recession OR expansion OR contraction '
+            'OR slowdown OR "economic growth" OR "GDP growth" '
+            'OR "economic performance" OR "quarterly growth" '
+            'OR "annual growth" OR recovery OR downturn '
+            'OR "growth rate" OR "economic outlook" OR stagnation OR boom) '
+            'AND ({country})'
+        ),
+        themes="Economics,Finance,Politics",
+        signal_terms=["GDP", "growth", "recession", "expansion",
+                       "contraction", "recovery", "downturn", "stagnation",
+                       "economic performance", "economic outlook"],
+    ),
+    "4": KpiNewsQuery(
+        query_template=(
+            '(FDI OR "foreign direct investment" OR "foreign investment" '
+            'OR "capital flows" OR "capital inflows" OR "investment climate" '
+            'OR "foreign ownership" OR "cross-border" OR invest* '
+            'OR greenfield OR "mergers and acquisitions" OR "joint venture" '
+            'OR "free zone" OR "special economic zone" OR privatiz* '
+            'OR "sovereign wealth") '
+            'AND ({country})'
+        ),
+        themes="Economics,Finance,Business,Politics",
+        signal_terms=["FDI", "foreign direct investment", "capital flows",
+                       "investment", "greenfield", "free zone",
+                       "sovereign wealth", "privatization", "cross-border"],
+    ),
+    "5": KpiNewsQuery(
+        query_template=(
+            '(unemploy* OR "labor market" OR "labour market" '
+            'OR "job creation" OR "job losses" OR workforce OR employment '
+            'OR jobless OR hiring OR layoff* OR "labor reform" '
+            'OR "labour reform" OR "labor force" OR "youth unemployment" '
+            'OR wage OR nationalization OR Saudization OR Emiratization '
+            'OR "labor participation") '
+            'AND ({country})'
+        ),
+        themes="Economics,Politics,Business",
+        signal_terms=["unemployment", "employment", "labor market",
+                       "job creation", "workforce", "hiring", "layoff",
+                       "wage", "labor reform", "Saudization", "Emiratization"],
+    ),
+    "6": KpiNewsQuery(
+        query_template=(
+            '(consumption OR "consumer spending" OR "household expenditure" '
+            'OR "household spending" OR "retail sales" OR retail '
+            'OR "purchasing power" OR "consumer confidence" '
+            'OR "domestic demand" OR "consumer demand" '
+            'OR "disposable income" OR "cost of living" OR spending '
+            'OR "consumer sentiment" OR "private consumption" '
+            'OR "household income") '
+            'AND ({country})'
+        ),
+        themes="Economics,Finance,Business",
+        signal_terms=["consumption", "consumer spending", "retail",
+                       "household expenditure", "purchasing power",
+                       "consumer confidence", "domestic demand",
+                       "disposable income", "cost of living"],
+    ),
+    "7": KpiNewsQuery(
+        query_template=(
+            '(inflation OR CPI OR "consumer price" OR "price index" '
+            'OR "central bank" OR "monetary policy" OR "interest rate" '
+            'OR deflation OR disinflation OR "cost of living" '
+            'OR "food prices" OR "energy prices" OR "price stability" '
+            'OR "base rate" OR "repo rate" OR "price growth" '
+            'OR inflationary OR stagflation) '
+            'AND ({country})'
+        ),
+        themes="Economics,Finance,Politics",
+        signal_terms=["inflation", "CPI", "consumer price", "interest rate",
+                       "monetary policy", "central bank", "deflation",
+                       "cost of living", "price index", "stagflation"],
+    ),
+    "8": KpiNewsQuery(
+        query_template=(
+            '(debt OR "external debt" OR "sovereign debt" '
+            'OR "government borrowing" OR "bond issuance" '
+            'OR "credit rating" OR "fiscal deficit" OR "debt-to-GDP" '
+            'OR "sovereign bond" OR "public debt" OR "national debt" '
+            'OR borrowing OR "credit default" OR "debt sustainability" '
+            'OR "fiscal consolidation" OR "debt restructuring" '
+            'OR sukuk OR eurobond OR "budget deficit" OR "fiscal balance") '
+            'AND ({country})'
+        ),
+        themes="Economics,Finance,Politics",
+        signal_terms=["debt", "sovereign debt", "bond", "credit rating",
+                       "fiscal deficit", "debt-to-GDP", "borrowing",
+                       "sukuk", "eurobond", "debt sustainability"],
+    ),
+    "9": KpiNewsQuery(
+        query_template=(
+            '(population OR demograph* OR census OR immigra* OR emigra* '
+            'OR migra* OR "birth rate" OR "fertility rate" '
+            'OR "workforce growth" OR "labor force growth" OR expatriat* '
+            'OR "visa reform" OR residency OR "population growth" '
+            'OR "population change" OR "population decline" OR aging '
+            'OR urbanization OR "housing demand" OR nationalization '
+            'OR citizen*) '
+            'AND ({country})'
+        ),
+        themes="Economics,Politics,Business",
+        signal_terms=["population", "demographic", "immigration", "census",
+                       "migration", "birth rate", "fertility", "expatriate",
+                       "visa reform", "urbanization", "workforce growth"],
+    ),
+    "10": KpiNewsQuery(
+        query_template=(
+            '("government expenditure" OR "government spending" '
+            'OR "fiscal policy" OR "national accounts" OR "public spending" '
+            'OR budget OR "fiscal balance" OR "public investment" '
+            'OR "capital expenditure" OR "current expenditure" '
+            'OR revenue OR "tax revenue" OR "fiscal stimulus" '
+            'OR austerity OR subsid* OR "public finance" '
+            'OR "budget deficit" OR "budget surplus") '
+            'AND ({country})'
+        ),
+        themes="Economics,Finance,Politics",
+        signal_terms=["government expenditure", "fiscal policy", "budget",
+                       "public spending", "tax revenue", "austerity",
+                       "subsidy", "fiscal stimulus", "public finance"],
+    ),
+}
