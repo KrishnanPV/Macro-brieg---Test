@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Sparkles, Loader2, RotateCcw, Target, Download } from 'lucide-react'
 import useCountryBriefStore from '../../stores/countryBriefStore'
@@ -167,7 +167,10 @@ export default function CountryBrief() {
     chartFrequency, applyChartFrequency, kpiDataLoading,
     setSelectedCountry, setStartYear, setEndYear, setFocus,
     generateBrief, resetBrief, openSidebar, sidebarOpen,
+    kpiSelectionMode, setKpiSelectionMode, kpiCatalog, selectedKpiIds, toggleKpiId, fetchKpiCatalog,
   } = useCountryBriefStore()
+
+  useEffect(() => { fetchKpiCatalog() }, [fetchKpiCatalog])
 
   const handleDiscuss = useCallback((blockIndex, title, content) => {
     openSidebar(blockIndex, title, content)
@@ -223,6 +226,71 @@ export default function CountryBrief() {
             selectedCountry={selectedCountry}
             onSelect={setSelectedCountry}
           />
+
+          {/* KPI selection mode */}
+          <div className="mt-8 max-w-lg mx-auto">
+            <h3 className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-3 text-center">KPI Selection</h3>
+            <div className="flex justify-center mb-4">
+              <div className="inline-flex rounded-xl overflow-hidden border border-slate-200">
+                <button type="button"
+                  onClick={() => setKpiSelectionMode('auto')}
+                  className={`px-5 py-2.5 text-xs font-semibold transition-all ${
+                    kpiSelectionMode === 'auto'
+                      ? 'bg-slate-800 text-white'
+                      : 'bg-white text-slate-500 hover:bg-slate-50'
+                  }`}
+                >Automatic</button>
+                <button type="button"
+                  onClick={() => setKpiSelectionMode('manual')}
+                  className={`px-5 py-2.5 text-xs font-semibold transition-all ${
+                    kpiSelectionMode === 'manual'
+                      ? 'bg-slate-800 text-white'
+                      : 'bg-white text-slate-500 hover:bg-slate-50'
+                  }`}
+                >Manual</button>
+              </div>
+            </div>
+
+            <div className={`rounded-xl border border-slate-200 bg-white p-4 transition-opacity ${
+              kpiSelectionMode === 'auto' ? 'opacity-40 pointer-events-none' : ''
+            }`}>
+              {kpiCatalog.length === 0 ? (
+                <p className="text-xs text-slate-400 text-center py-2">Loading KPIs…</p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {kpiCatalog.filter(k => k.available !== false).map(kpi => {
+                    const checked = selectedKpiIds.includes(kpi.id)
+                    return (
+                      <label key={kpi.id}
+                        className={`flex items-start gap-2.5 px-3 py-2.5 rounded-lg cursor-pointer transition-colors ${
+                          checked ? 'bg-blue-50 border border-blue-200' : 'border border-transparent hover:bg-slate-50'
+                        }`}
+                      >
+                        <input type="checkbox" checked={checked}
+                          onChange={() => toggleKpiId(kpi.id)}
+                          className="mt-0.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <div className="min-w-0">
+                          <span className="text-sm text-slate-700 font-medium leading-snug block">{kpi.name}</span>
+                          {kpi.notes && <span className="text-[10px] text-slate-400 leading-tight block mt-0.5">{kpi.notes}</span>}
+                        </div>
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+            {kpiSelectionMode === 'auto' && (
+              <p className="text-[10px] text-slate-400 text-center mt-2">
+                KPIs will be selected automatically based on country and focus.
+              </p>
+            )}
+            {kpiSelectionMode === 'manual' && selectedKpiIds.length > 0 && (
+              <p className="text-[10px] text-slate-400 text-center mt-2">
+                {selectedKpiIds.length} KPI{selectedKpiIds.length !== 1 ? 's' : ''} selected
+              </p>
+            )}
+          </div>
 
           <div className="mt-8 max-w-md mx-auto">
             <h3 className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-3 text-center">Time Range</h3>

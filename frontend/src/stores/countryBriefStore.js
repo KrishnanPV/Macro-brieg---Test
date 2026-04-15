@@ -35,6 +35,14 @@ const useCountryBriefStore = create(
       chartFrequency: 'A',
       kpiDataLoading: false,
 
+      // --- KPI selection ---
+      /** 'auto' = backend picks KPIs; 'manual' = user picks from list */
+      kpiSelectionMode: 'auto',
+      /** Full KPI catalogue from /api/kpis */
+      kpiCatalog: [],
+      /** User-selected KPI ids when mode is 'manual' */
+      selectedKpiIds: [],
+
       // --- Generation state ---
       generating: false,
       statusMessage: '',
@@ -65,6 +73,21 @@ const useCountryBriefStore = create(
       setEndYear: (y) => set({ endYear: y }),
       setFocus: (f) => set({ focus: f }),
       setError: (e) => set({ error: e }),
+      setKpiSelectionMode: (mode) => set({ kpiSelectionMode: mode }),
+      toggleKpiId: (id) => set((s) => {
+        const ids = s.selectedKpiIds.includes(id)
+          ? s.selectedKpiIds.filter(k => k !== id)
+          : [...s.selectedKpiIds, id]
+        return { selectedKpiIds: ids }
+      }),
+      fetchKpiCatalog: async () => {
+        if (get().kpiCatalog.length) return
+        try {
+          const resp = await fetch('/api/kpis')
+          const data = await resp.json()
+          set({ kpiCatalog: data })
+        } catch { /* best-effort */ }
+      },
 
       resetBrief: () => set({
         selectedCountry: null, briefGenerated: false, blocks: [],
@@ -75,6 +98,8 @@ const useCountryBriefStore = create(
         workspaceId: get().workspaceId,
         chartFrequency: 'A',
         kpiDataLoading: false,
+        kpiSelectionMode: 'auto',
+        selectedKpiIds: [],
       }),
 
       /**
@@ -185,9 +210,13 @@ const useCountryBriefStore = create(
 
       // --- Brief generation (streaming) ---
       generateBrief: async () => {
-        const { selectedCountry, startYear, endYear, focus } = get()
+        const { selectedCountry, startYear, endYear, focus, kpiSelectionMode, selectedKpiIds } = get()
         if (!selectedCountry) {
           set({ error: 'Select a country.' })
+          return
+        }
+        if (kpiSelectionMode === 'manual' && selectedKpiIds.length === 0) {
+          set({ error: 'Select at least one KPI, or switch to automatic selection.' })
           return
         }
 
@@ -197,18 +226,23 @@ const useCountryBriefStore = create(
           briefGenerated: false, newsArticles: [], sidebarOpen: false, sidebarHistory: {},
         })
 
+        const payload = {
+          country: selectedCountry,
+          start_year: startYear,
+          end_year: endYear,
+          focus: focus || null,
+          chart_frequency: get().chartFrequency,
+          deep_analysis: true,
+        }
+        if (kpiSelectionMode === 'manual') {
+          payload.kpi_ids = selectedKpiIds
+        }
+
         try {
           const resp = await fetch('/api/country-brief/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              country: selectedCountry,
-              start_year: startYear,
-              end_year: endYear,
-              focus: focus || null,
-              chart_frequency: get().chartFrequency,
-              deep_analysis: true,
-            }),
+            body: JSON.stringify(payload),
           })
 
           if (!resp.ok) {

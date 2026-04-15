@@ -77,6 +77,11 @@ def run_pipeline(
     scores = triage_kpis(derived_facts)
     notable_ids = [s.kpi_id for s in scores if s.notable]
 
+    manual_selection = bool(req.kpi_ids)
+    if manual_selection:
+        ids_with_data = {str(r.get("kpi_id")) for r in valid_results}
+        notable_ids = [kid for kid in available_ids if kid in ids_with_data]
+
     yield _ndjson({
         "type": "triage",
         "content": [
@@ -133,6 +138,7 @@ def run_pipeline(
         news_context=None,
         news_prompt_bundle=prompt_bundle,
         focus=req.focus,
+        manual_selection=manual_selection,
     )
 
     interpretation_json = json.dumps(signal_interpretation, indent=2, default=str)

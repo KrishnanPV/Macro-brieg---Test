@@ -181,6 +181,7 @@ def build_brief_prompt(
     news_context: dict[str, Any] | None = None,
     news_prompt_bundle: dict[str, Any] | None = None,
     focus: str | None = None,
+    manual_selection: bool = False,
 ) -> list[dict[str, str]]:
     """Assemble the ChatCompletion messages for brief generation."""
 
@@ -242,6 +243,19 @@ def build_brief_prompt(
     if focus and focus.strip():
         focus_block = FOCUS_ADDENDUM_TEMPLATE.format(focus=focus.strip())
 
+    manual_block = ""
+    if manual_selection:
+        manual_block = (
+            "\n\nMANUAL KPI SELECTION — the user has hand-picked specific KPIs for this brief. "
+            "Override the usual 'omit if unremarkable' rule:\n"
+            "- Every selected KPI with available data MUST appear in the brief body.\n"
+            "- Create at least one [SECTION:...] that covers each selected KPI.\n"
+            "- Include a [CHART:kpi_id] marker for every selected KPI.\n"
+            "- You may group related KPIs into a single section or give each its own section.\n"
+            "- Do NOT omit any selected KPI even if its data appears unremarkable — "
+            "the user chose it deliberately.\n"
+        )
+
     user_content = (
         f"Generate a country brief for **{country}** covering {start_year}–{end_year}.\n\n"
         "DATA_CONTEXT (JSON):\n"
@@ -251,10 +265,13 @@ def build_brief_prompt(
         "Per-KPI notability lenses:\n\n"
         + "\n".join(lens_blocks)
         + focus_block
+        + manual_block
         + "\n\n"
         "Task: Follow the STRUCTURE from the system prompt exactly. Use the markers "
         "[METRICS_RIBBON], [EXEC_SUMMARY], [SECTION:Title], [CHART:kpi_id], and [OUTLOOK] "
-        "as specified. Omit sections whose KPI data is absent or unremarkable.\n\n"
+        "as specified."
+        + ("" if manual_selection else " Omit sections whose KPI data is absent or unremarkable.")
+        + "\n\n"
         "CRITICAL — TWO MANDATORY BLOCKS:\n"
         "1. You MUST include [EXEC_SUMMARY]...[/EXEC_SUMMARY] at the top. This is the executive "
         "summary that a CEO reads first. NEVER omit it.\n"
