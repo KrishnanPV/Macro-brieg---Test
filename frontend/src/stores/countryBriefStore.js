@@ -31,10 +31,6 @@ const useCountryBriefStore = create(
       startYear: 2015,
       endYear: CURRENT_YEAR,
       focus: '',
-      /** Global chart resolution for Country Brief (all KPI charts). */
-      chartFrequency: 'A',
-      kpiDataLoading: false,
-
       // --- KPI selection ---
       /** 'auto' = backend picks KPIs; 'manual' = user picks from list */
       kpiSelectionMode: 'auto',
@@ -96,46 +92,9 @@ const useCountryBriefStore = create(
         newsArticles: [],
         sidebarOpen: false, activeSectionIndex: null, sidebarHistory: {},
         workspaceId: get().workspaceId,
-        chartFrequency: 'A',
-        kpiDataLoading: false,
         kpiSelectionMode: 'auto',
         selectedKpiIds: [],
       }),
-
-      /**
-       * After a brief is loaded, refetch all cached KPI series at a new global frequency
-       * (inline charts update without a full regenerate).
-       */
-      applyChartFrequency: async (freq) => {
-        const prev = get().chartFrequency
-        if (freq === prev) return
-        const { selectedCountry, startYear, endYear, kpiDataCache, briefGenerated } = get()
-        set({ chartFrequency: freq })
-        if (!briefGenerated || !selectedCountry || !kpiDataCache?.length) return
-        const kpiIds = kpiDataCache.map(r => String(r.kpi_id))
-        set({ kpiDataLoading: true, error: '' })
-        try {
-          const resp = await fetch('/api/fetch', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              countries: [selectedCountry],
-              kpi_ids: kpiIds,
-              timerange_q: `${startYear}-${endYear}`,
-              timerange_a: `${startYear}-${endYear}`,
-              frequency_overrides: Object.fromEntries(kpiIds.map(id => [id, freq])),
-            }),
-          })
-          if (!resp.ok) {
-            const body = await resp.json().catch(() => ({}))
-            throw new Error(body.detail || `HTTP ${resp.status}`)
-          }
-          const data = await resp.json()
-          set({ kpiDataCache: data.results, kpiDataLoading: false })
-        } catch (e) {
-          set({ error: e.message, kpiDataLoading: false, chartFrequency: prev })
-        }
-      },
 
       /**
        * Merge server workspace `country_brief` with client state.
@@ -231,7 +190,6 @@ const useCountryBriefStore = create(
           start_year: startYear,
           end_year: endYear,
           focus: focus || null,
-          chart_frequency: get().chartFrequency,
           deep_analysis: true,
         }
         if (kpiSelectionMode === 'manual') {
@@ -352,7 +310,6 @@ const useCountryBriefStore = create(
         startYear: state.startYear,
         endYear: state.endYear,
         focus: state.focus,
-        chartFrequency: state.chartFrequency,
         blocks: state.blocks,
         kpiDataCache: state.kpiDataCache,
         triageResults: state.triageResults,

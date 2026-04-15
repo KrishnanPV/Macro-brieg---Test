@@ -47,13 +47,18 @@ def run_pipeline(
     Agent 3: 1 GPT call to write the final brief
     """
     all_oxford_ids = [s.id for s in SPECS if s.source == "oxford"]
+    manual_selection = bool(req.kpi_ids)
     available_ids = req.kpi_ids if req.kpi_ids else all_oxford_ids
     available_ids = [kid for kid in available_ids if kid in {s.id for s in SPECS if s.source == "oxford"}]
     if not available_ids:
         available_ids = all_oxford_ids
+    # In automatic mode, always include the 3 core GDP KPIs
+    GDP_CORE_IDS = ["3", "11", "2"]
+    if not manual_selection:
+        for kid in GDP_CORE_IDS:
+            if kid not in available_ids:
+                available_ids.append(kid)
     timerange = f"{req.start_year}-{req.end_year}"
-    freq = req.chart_frequency if req.chart_frequency in ("A", "Q") else "A"
-    frequency_overrides = {str(kid): freq for kid in available_ids}
 
     # ── Phase 1: Fetch KPI data ──────────────────────────────────────────
     yield _ndjson({"type": "status", "content": f"Fetching data for {len(available_ids)} KPIs..."})
@@ -63,7 +68,7 @@ def run_pipeline(
         kpi_ids=available_ids,
         timerange_q=timerange,
         timerange_a=timerange,
-        frequency_overrides=frequency_overrides,
+        dual_fetch=True,
     )
     results_raw = [r.model_dump() for r in fetch_resp.results]
     yield _ndjson({"type": "kpi_data", "content": results_raw})
@@ -77,10 +82,14 @@ def run_pipeline(
     scores = triage_kpis(derived_facts)
     notable_ids = [s.kpi_id for s in scores if s.notable]
 
-    manual_selection = bool(req.kpi_ids)
     if manual_selection:
         ids_with_data = {str(r.get("kpi_id")) for r in valid_results}
         notable_ids = [kid for kid in available_ids if kid in ids_with_data]
+    else:
+        # Force core GDP KPIs as notable so they always get brief sections
+        for kid in GDP_CORE_IDS:
+            if kid not in notable_ids:
+                notable_ids.append(kid)
 
     yield _ndjson({
         "type": "triage",

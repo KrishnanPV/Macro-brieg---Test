@@ -2,7 +2,6 @@ import { useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Sparkles, Loader2, RotateCcw, Target, Download } from 'lucide-react'
 import useCountryBriefStore from '../../stores/countryBriefStore'
-import ChartFrequencyToggle from '../../components/ui/ChartFrequencyToggle'
 import MetricsRibbon from './blocks/MetricsRibbon'
 import ExecSummaryBlock from './blocks/ExecSummaryBlock'
 import NarrativeBlock from './blocks/NarrativeBlock'
@@ -164,7 +163,6 @@ export default function CountryBrief() {
     countryOptions, countryNames, selectedCountry,
     startYear, endYear, focus, generating, statusMessage, streamingText,
     blocks, kpiDataCache, triageResults, error, briefGenerated, newsArticles,
-    chartFrequency, applyChartFrequency, kpiDataLoading,
     setSelectedCountry, setStartYear, setEndYear, setFocus,
     generateBrief, resetBrief, openSidebar, sidebarOpen,
     kpiSelectionMode, setKpiSelectionMode, kpiCatalog, selectedKpiIds, toggleKpiId, fetchKpiCatalog,
@@ -311,19 +309,6 @@ export default function CountryBrief() {
             </div>
           </div>
 
-          <div className="mt-6 max-w-md mx-auto">
-            <h3 className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2 text-center">Chart resolution</h3>
-            <ChartFrequencyToggle
-              value={chartFrequency}
-              loading={false}
-              wide
-              onChange={(f) => useCountryBriefStore.setState({ chartFrequency: f })}
-            />
-            <p className="text-[10px] text-slate-400 text-center mt-2 leading-snug">
-              Applies to all KPI charts in the generated brief (annual-only series stay annual).
-            </p>
-          </div>
-
           {/* Focus input */}
           <div className="mt-8 max-w-lg mx-auto">
             <div className="flex items-center gap-2 mb-2">
@@ -401,14 +386,6 @@ export default function CountryBrief() {
             </div>
 
             <div className="flex items-center gap-2 flex-wrap justify-end">
-              <div className="flex items-center gap-2 mr-1">
-                <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wide hidden sm:inline">Charts</span>
-                <ChartFrequencyToggle
-                  value={chartFrequency}
-                  loading={kpiDataLoading}
-                  onChange={applyChartFrequency}
-                />
-              </div>
               <button
                 type="button"
                 onClick={resetBrief}

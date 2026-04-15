@@ -22,18 +22,22 @@ class KpiSpec:
 
 def _kpi_specs() -> list[KpiSpec]:
     return [
-        KpiSpec("1", "GDP - Nominal (Split by industry)", "oxford", "Q",
-                ["GDP, agriculture", "GDP, industry", "GDP, manufacturing", "GDP, services"],
-                "EAP_TIMERANGE_Q",
-                "Sector GDP in LCU (current prices)."),
-        KpiSpec("2", "GDP - Real (Split by industry)", "oxford", "Q",
-                ["GDP, oil, real, LCU", "GDP, non-oil, real, LCU", "GDP, manufacturing", "GDP, services"],
-                "EAP_TIMERANGE_Q",
-                "Real-side lens: oil vs non-oil plus manufacturing & services."),
         KpiSpec("3", "GDP growth by economic activity", "oxford", "Q",
                 ["GDP real, annual growth"],
                 "EAP_TIMERANGE_Q",
                 "Aggregate real GDP growth (y/y)."),
+        KpiSpec("11", "GDP - Real (Sector Split)", "oxford", "Q",
+                ["GDP, agriculture", "GDP, industry", "GDP, manufacturing", "GDP, services"],
+                "EAP_TIMERANGE_Q",
+                "Real GDP by 4 sectors: agriculture, industry, manufacturing, services."),
+        KpiSpec("2", "GDP - Real (Oil vs Non-Oil)", "oxford", "Q",
+                ["GDP, oil, real, LCU", "GDP, non-oil, real, LCU"],
+                "EAP_TIMERANGE_Q",
+                "Real GDP split: oil vs non-oil."),
+        KpiSpec("1", "GDP - Nominal (Split by industry)", "oxford", "Q",
+                ["GDP, agriculture", "GDP, industry", "GDP, manufacturing", "GDP, services"],
+                "EAP_TIMERANGE_Q",
+                "Sector GDP in LCU (current prices)."),
         KpiSpec("4", "FDI inflow & outflow", "oxford", "Q",
                 ["Foreign direct investment, inward", "Foreign direct investment, outward"],
                 "EAP_TIMERANGE_Q",
@@ -67,7 +71,7 @@ _KPI_CATALOG_ORDER: dict[str, int] = {s.id: i for i, s in enumerate(SPECS)}
 
 
 def sorted_kpi_ids(ids: list[str]) -> list[str]:
-    """Catalog order (1…10 as in SPECS)."""
+    """Catalog order (as listed in SPECS)."""
     return sorted(ids, key=lambda k: (_KPI_CATALOG_ORDER.get(k, len(SPECS)), k))
 
 
@@ -123,11 +127,11 @@ INSIGHT_LENSES: dict[str, InsightLens] = {
             "Do not attribute oil GDP changes to price — this is a real (volume) series.",
             "Do not claim diversification from a single quarter of non-oil growth.",
         ],
-        units_note="Real LCU (constant prices). Report the oil/non-oil split, not each sub-sector individually.",
+        units_note="Real LCU (constant prices). Report the oil/non-oil split only.",
         narrative_guidance=[
             "Lead with the oil/non-oil divergence narrative — state which is outpacing and by how much.",
             "Connect oil-GDP volume changes to specific OPEC+ decisions or production events, not price.",
-            "Frame non-oil acceleration as a structural story: name the sectors driving it (services, manufacturing, tourism).",
+            "Frame non-oil acceleration as a structural story: link to diversification programs and policy drivers.",
         ],
     ),
     "3": InsightLens(
@@ -303,6 +307,27 @@ INSIGHT_LENSES: dict[str, InsightLens] = {
         ],
         narrative_guidance=[
             "If expenditure-side data is unavailable, do not attempt to reconstruct it from other KPIs.",
+        ],
+    ),
+    "11": InsightLens(
+        headline="Real GDP by Sector",
+        notability_cues=[
+            "Sector-share shifts >5pp between periods signal structural change (diversification or concentration).",
+            "Cross-country outliers where the dominant sector differs from regional norms.",
+        ],
+        context_hooks=[
+            "National economic diversification programs (e.g. Saudi Vision 2030, UAE Economic Vision 2030, Qatar National Vision 2030).",
+            "Sector-specific industrial policy, privatization drives, or mega-project spending.",
+            "Global commodity cycles and their pass-through to real sector output.",
+        ],
+        forbidden_claims=[
+            "Do not compare absolute LCU values across countries with different currencies.",
+        ],
+        units_note="Real LCU (constant prices). Synthesize sectors — do not bullet each one separately.",
+        narrative_guidance=[
+            "Frame sector composition as a diversification narrative: which sectors are gaining share and why.",
+            "Connect share shifts to named policy programs or structural forces — never present shares in isolation.",
+            "Synthesize agriculture, industry, manufacturing, and services into a single composition story.",
         ],
     ),
 }
@@ -611,5 +636,18 @@ KPI_NEWS_QUERIES: dict[str, KpiNewsQuery] = {
         signal_terms=["government expenditure", "fiscal policy", "budget",
                        "public spending", "tax revenue", "austerity",
                        "subsidy", "fiscal stimulus", "public finance"],
+    ),
+    "11": KpiNewsQuery(
+        query_template=(
+            '(GDP OR "gross domestic product" OR econom* OR "economic output" '
+            'OR industr* OR manufactur* OR services OR agriculture '
+            'OR "private sector" OR "public sector" OR "sectoral composition" '
+            'OR "value added" OR "economic activity" OR output OR production) '
+            'AND ({country})'
+        ),
+        themes="Economics,Finance,Business,Politics",
+        signal_terms=["GDP", "gross domestic product", "sector", "industry",
+                       "manufacturing", "services", "agriculture", "output",
+                       "value added", "economic activity", "production"],
     ),
 }

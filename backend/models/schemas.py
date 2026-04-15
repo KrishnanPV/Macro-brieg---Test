@@ -47,6 +47,7 @@ class KpiResult(BaseModel):
     native_frequency: str = ""
     unit: str = ""
     series: list[IndicatorSeries]
+    series_annual: list[IndicatorSeries] | None = None
     errors: list[str] = []
 
 

@@ -114,14 +114,43 @@ def _fetch_indicator(
         return None, f"{country}/{indicator}: {exc}"
 
 
+def _fetch_all_indicators(
+    countries: list[str],
+    indicators: list[str],
+    freq: str,
+    tr: str,
+    clip_start: pd.Timestamp,
+    clip_end: pd.Timestamp,
+) -> tuple[list[IndicatorSeries], list[str]]:
+    """Fetch all indicators for given countries at a single frequency."""
+    all_series: list[IndicatorSeries] = []
+    errors: list[str] = []
+    for country in countries:
+        for indicator in indicators:
+            series, err = _fetch_indicator(
+                country, indicator, freq, tr, clip_start, clip_end,
+            )
+            if series:
+                all_series.append(series)
+            if err:
+                errors.append(err)
+    return all_series, errors
+
+
 def fetch_kpi_data(
     countries: list[str],
     kpi_ids: list[str],
     timerange_q: str = "2015-2029",
     timerange_a: str = "2015-2026",
     frequency_overrides: dict[str, str] | None = None,
+    dual_fetch: bool = False,
 ) -> FetchResponse:
-    """Fetch data for multiple KPIs and countries from Knoema."""
+    """Fetch data for multiple KPIs and countries from Knoema.
+
+    When dual_fetch=True, quarterly-capable KPIs are fetched at both Q and A
+    frequencies. The quarterly data goes into ``series`` and the annual data
+    into ``series_annual``, allowing the frontend to switch without re-fetching.
+    """
     _configure_api()
     timeranges = {"Q": timerange_q, "A": timerange_a}
     freq_overrides = frequency_overrides or {}
@@ -143,28 +172,39 @@ def fetch_kpi_data(
         effective_freq = freq_overrides.get(kpi_id, spec.frequency)
         if spec.frequency == "A" and effective_freq == "Q":
             effective_freq = "A"
-        tr = timeranges.get(effective_freq, timeranges["A"])
-        clip_start, clip_end = _parse_timerange(tr)
-        all_series: list[IndicatorSeries] = []
-        errors: list[str] = []
 
-        for country in countries:
-            for indicator in spec.indicators:
-                series, err = _fetch_indicator(
-                    country, indicator, effective_freq, tr, clip_start, clip_end,
-                )
-                if series:
-                    all_series.append(series)
-                if err:
-                    errors.append(err)
-
-        kpi_unit = all_series[0].unit if all_series else ""
-
-        results.append(KpiResult(
-            kpi_id=kpi_id, kpi_name=spec.name, frequency=effective_freq,
-            native_frequency=spec.frequency, unit=kpi_unit,
-            series=all_series, errors=errors,
-        ))
+        if dual_fetch and spec.frequency == "Q":
+            # Fetch quarterly (primary)
+            tr_q = timeranges["Q"]
+            clip_q_start, clip_q_end = _parse_timerange(tr_q)
+            q_series, q_errors = _fetch_all_indicators(
+                countries, spec.indicators, "Q", tr_q, clip_q_start, clip_q_end,
+            )
+            # Fetch annual
+            tr_a = timeranges["A"]
+            clip_a_start, clip_a_end = _parse_timerange(tr_a)
+            a_series, a_errors = _fetch_all_indicators(
+                countries, spec.indicators, "A", tr_a, clip_a_start, clip_a_end,
+            )
+            kpi_unit = q_series[0].unit if q_series else (a_series[0].unit if a_series else "")
+            results.append(KpiResult(
+                kpi_id=kpi_id, kpi_name=spec.name, frequency="Q",
+                native_frequency=spec.frequency, unit=kpi_unit,
+                series=q_series, series_annual=a_series,
+                errors=q_errors + a_errors,
+            ))
+        else:
+            tr = timeranges.get(effective_freq, timeranges["A"])
+            clip_start, clip_end = _parse_timerange(tr)
+            all_series, errors = _fetch_all_indicators(
+                countries, spec.indicators, effective_freq, tr, clip_start, clip_end,
+            )
+            kpi_unit = all_series[0].unit if all_series else ""
+            results.append(KpiResult(
+                kpi_id=kpi_id, kpi_name=spec.name, frequency=effective_freq,
+                native_frequency=spec.frequency, unit=kpi_unit,
+                series=all_series, errors=errors,
+            ))
 
     return FetchResponse(results=results)
 
