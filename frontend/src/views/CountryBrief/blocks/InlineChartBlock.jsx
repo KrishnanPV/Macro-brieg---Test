@@ -132,12 +132,13 @@ export default function InlineChartBlock({ kpiId, kpiDataCache = [], compact = f
 
   const isQuarterly = freq === 'Q' && kpiResult?.frequency === 'Q'
 
-  const { seriesKeys, rows, kpiName } = useMemo(() => {
+  const { seriesKeys, rows, kpiName, unitLabel } = useMemo(() => {
     if (!kpiResult || !activeSeries?.length) {
-      return { seriesKeys: [], rows: [], kpiName: '' }
+      return { seriesKeys: [], rows: [], kpiName: '', unitLabel: '' }
     }
     const { seriesKeys: sk, rows: r } = buildRowsFromSeries(activeSeries, kpiResult.unit)
-    return { seriesKeys: sk, rows: r, kpiName: kpiResult.kpi_name }
+    const unit = activeSeries[0]?.unit || kpiResult.unit || ''
+    return { seriesKeys: sk, rows: r, kpiName: kpiResult.kpi_name, unitLabel: unit }
   }, [kpiResult, activeSeries])
 
   if (!rows.length) return null
@@ -170,9 +171,14 @@ export default function InlineChartBlock({ kpiId, kpiDataCache = [], compact = f
         : "px-4 py-3 border-b border-slate-100 bg-slate-50/50"
       }>
         <div className="flex items-center justify-between gap-2 flex-wrap">
-          <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-            {kpiName}
-          </p>
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+              {kpiName}
+            </p>
+            {unitLabel && (
+              <p className="text-[10px] text-slate-400 leading-tight mt-0.5">{unitLabel}</p>
+            )}
+          </div>
           <div className="flex items-center gap-1.5">
             {hasDualFreq && (
               <ChartFrequencyToggle value={freq} loading={false} onChange={setFreq} />
