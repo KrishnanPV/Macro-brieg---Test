@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
-  LayoutDashboard, BookOpen, GitBranch, Newspaper,
-  FileText, Plus, ChevronDown, Globe, Flag, Trash2,
+  LayoutDashboard, Plus, ChevronDown, Globe, Flag, Trash2,
 } from 'lucide-react'
 import useWorkspaceStore from './stores/workspaceStore'
 import useDataStore from './stores/dataStore'
@@ -11,13 +10,6 @@ import useCountryBriefStore from './stores/countryBriefStore'
 const PRIMARY_NAV = [
   { to: '/country-brief', icon: Flag, label: 'Country Brief' },
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-]
-
-const SECONDARY_NAV = [
-  { to: '/notebook', icon: BookOpen, label: 'Notebook' },
-  { to: '/graph', icon: GitBranch, label: 'Knowledge Graph' },
-  { to: '/news', icon: Newspaper, label: 'News Lab' },
-  { to: '/briefs', icon: FileText, label: 'Brief Builder' },
 ]
 
 export default function WorkspaceShell() {
@@ -164,24 +156,6 @@ export default function WorkspaceShell() {
                     ${isActive
                       ? 'bg-mck-blue text-white shadow-sm'
                       : 'text-white/70 hover:text-white hover:bg-white/10'}`
-                  }
-                >
-                  <Icon className="w-3.5 h-3.5" />
-                  {label}
-                </NavLink>
-              ))}
-
-              <div className="w-px h-5 bg-white/20 mx-2" />
-
-              {SECONDARY_NAV.map(({ to, icon: Icon, label }) => (
-                <NavLink
-                  key={to}
-                  to={to}
-                  className={({ isActive }) =>
-                    `flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium transition
-                    ${isActive
-                      ? 'bg-white/15 text-white'
-                      : 'text-white/50 hover:text-white/80 hover:bg-white/10'}`
                   }
                 >
                   <Icon className="w-3.5 h-3.5" />

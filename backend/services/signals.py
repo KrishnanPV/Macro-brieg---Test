@@ -1,16 +1,11 @@
-"""Detect notable Signals from KPI derived facts, then LLM-filter by analyst questions."""
+"""Detect notable Signals from KPI derived facts."""
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
-from openai import OpenAI
-
-from backend.config import OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL
-from backend.services.cost_tracker import record_usage
 from backend.services.derived_facts import compute_derived_facts
-from backend.models.insights import AnalystQuestion, Signal
+from backend.models.insights import Signal
 
 log = logging.getLogger(__name__)
 
@@ -190,119 +185,3 @@ def extract_signals(kpi_results: list[dict[str, Any]]) -> list[Signal]:
                     ))
 
     return signals
-
-
-# ---------------------------------------------------------------------------
-# LLM-based signal filtering
-# ---------------------------------------------------------------------------
-
-_FILTER_SYSTEM = """\
-You are a macroeconomic analyst selecting the most analytically interesting data \
-movements for investigation. You will receive:
-1. A list of SIGNALS — statistical movements detected in KPI data.
-2. A list of ANALYST QUESTIONS — investigative questions that guide this research.
-
-Your task: select 3-8 signals that are most worth investigating given the questions. \
-For each selected signal, note which question IDs it is relevant to.
-
-Selection criteria:
-- Signals that align with multiple questions are higher priority
-- Larger magnitude signals are more interesting (but small-magnitude signals with \
-clear policy implications can be selected)
-- Avoid selecting signals that are essentially duplicates of each other
-- Prefer signals that span different parts of the time range for fuller coverage
-
-Respond with a JSON array of objects:
-{"signal_id": "...", "question_ids": ["q1_id", "q2_id"]}
-
-Return ONLY the JSON array."""
-
-
-def _get_client() -> OpenAI:
-    if not OPENAI_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY is not configured.")
-    kwargs: dict[str, Any] = {"api_key": OPENAI_API_KEY}
-    if OPENAI_BASE_URL:
-        kwargs["base_url"] = OPENAI_BASE_URL
-    return OpenAI(**kwargs)
-
-
-def filter_signals_with_questions(
-    signals: list[Signal],
-    questions: list[AnalystQuestion],
-    kpi_name: str,
-    country: str,
-) -> list[Signal]:
-    """Use LLM to select the most analytically interesting signals given the questions."""
-    if not signals:
-        return []
-    if len(signals) <= 3:
-        return signals
-
-    signals_block = json.dumps(
-        [{"signal_id": s.signal_id, "type": s.signal_type,
-          "description": s.description, "from_date": s.from_date,
-          "to_date": s.to_date, "magnitude_pct": s.magnitude_pct}
-         for s in signals],
-        indent=2,
-    )
-    questions_block = json.dumps(
-        [{"question_id": q.question_id, "text": q.text, "focus_area": q.focus_area}
-         for q in questions],
-        indent=2,
-    )
-
-    user_prompt = (
-        f"KPI: {kpi_name} | Country: {country}\n\n"
-        f"SIGNALS ({len(signals)} detected):\n```json\n{signals_block}\n```\n\n"
-        f"ANALYST QUESTIONS ({len(questions)}):\n```json\n{questions_block}\n```\n\n"
-        "Select 3-8 signals most worth investigating. Return JSON array only."
-    )
-
-    client = _get_client()
-
-    response = client.chat.completions.create(
-        model=OPENAI_MODEL,
-        messages=[
-            {"role": "system", "content": _FILTER_SYSTEM},
-            {"role": "user", "content": user_prompt},
-        ],
-        max_completion_tokens=1024,
-    )
-    record_usage(OPENAI_MODEL, response.usage, caller="signals.filter_signals_with_questions")
-
-    raw_text = response.choices[0].message.content or ""
-    text = raw_text.strip()
-    if text.startswith("```"):
-        lines = text.split("\n")
-        lines = lines[1:]
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        text = "\n".join(lines)
-
-    try:
-        parsed = json.loads(text)
-    except json.JSONDecodeError:
-        log.warning("Failed to parse signal filter JSON — keeping all signals")
-        return signals
-
-    if not isinstance(parsed, list):
-        parsed = [parsed]
-
-    selected_map: dict[str, list[str]] = {}
-    for item in parsed:
-        if isinstance(item, dict) and "signal_id" in item:
-            selected_map[item["signal_id"]] = item.get("question_ids", [])
-
-    filtered: list[Signal] = []
-    for s in signals:
-        if s.signal_id in selected_map:
-            s.question_relevance = selected_map[s.signal_id]
-            filtered.append(s)
-
-    if not filtered:
-        log.warning("LLM selected 0 signals — keeping all")
-        return signals
-
-    log.info("Filtered %d → %d signals", len(signals), len(filtered))
-    return filtered

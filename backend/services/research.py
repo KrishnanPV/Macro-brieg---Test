@@ -3,14 +3,12 @@ from __future__ import annotations
 
 import json
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from openai import OpenAI
 
 from backend.config import PERPLEXITY_API_KEY, PERPLEXITY_URL, PERPLEXITY_MODEL
 from backend.services.cost_tracker import record_usage
-from backend.models.insights import SignalHypotheses
 from backend.models.kpi_registry import ISO3_TO_NAME
 
 log = logging.getLogger(__name__)
@@ -39,99 +37,6 @@ def _get_client() -> OpenAI:
             "Set it in .env to use the insights pipeline."
         )
     return OpenAI(api_key=PERPLEXITY_API_KEY, base_url=PERPLEXITY_URL)
-
-
-def _search_single(
-    client: OpenAI,
-    sh: SignalHypotheses,
-    country_name: str,
-) -> list[dict[str, Any]]:
-    """Execute a single Perplexity Sonar call for one signal's consolidated query."""
-    query = sh.consolidated_search_query.strip()
-    if not query:
-        return []
-
-    user_prompt = (
-        f"Country focus: {country_name}\n\n"
-        f"Research query:\n{query}\n\n"
-        f"Find relevant news articles, policy announcements, economic reports, "
-        f"and events. Return JSON array of findings."
-    )
-
-    log.info(
-        "Perplexity Sonar query for signal %s: %s",
-        sh.signal_id, query[:120],
-    )
-
-    try:
-        response = client.chat.completions.create(
-            model=PERPLEXITY_MODEL,
-            messages=[
-                {"role": "system", "content": _RESEARCH_SYSTEM},
-                {"role": "user", "content": user_prompt},
-            ],
-        )
-        record_usage(PERPLEXITY_MODEL, response.usage, caller="research.search_for_evidence")
-
-        raw_text = response.choices[0].message.content or ""
-        findings = _parse_findings(raw_text)
-
-        log.info(
-            "Sonar returned %d findings for signal %s",
-            len(findings), sh.signal_id,
-        )
-        return findings
-
-    except Exception:
-        log.exception(
-            "Perplexity Sonar failed for signal %s", sh.signal_id
-        )
-        return []
-
-
-def search_for_evidence(
-    signal_hypotheses: list[SignalHypotheses],
-    country_iso3: str,
-) -> dict[str, list[dict[str, Any]]]:
-    """Execute Perplexity Sonar calls in parallel using consolidated queries.
-
-    One call per signal, all dispatched concurrently. Returns a dict keyed by
-    signal_id -> list of finding dicts.
-    """
-    if not signal_hypotheses:
-        return {}
-
-    country_name = ISO3_TO_NAME.get(country_iso3, country_iso3)
-    client = _get_client()
-    results: dict[str, list[dict[str, Any]]] = {}
-
-    searchable = [sh for sh in signal_hypotheses if sh.consolidated_search_query.strip()]
-    empty = [sh for sh in signal_hypotheses if not sh.consolidated_search_query.strip()]
-    for sh in empty:
-        results[sh.signal_id] = []
-
-    if not searchable:
-        return results
-
-    with ThreadPoolExecutor(max_workers=len(searchable)) as pool:
-        futures = {
-            pool.submit(_search_single, client, sh, country_name): sh.signal_id
-            for sh in searchable
-        }
-        for future in as_completed(futures):
-            sid = futures[future]
-            try:
-                results[sid] = future.result()
-            except Exception:
-                log.exception("Perplexity future failed for signal %s", sid)
-                results[sid] = []
-
-    total = sum(len(v) for v in results.values())
-    log.info(
-        "Perplexity returned %d total findings across %d signals",
-        total, len(results),
-    )
-    return results
 
 
 def research_country_overview(
