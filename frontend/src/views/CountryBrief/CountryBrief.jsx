@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Sparkles, Loader2, RotateCcw, Target, Download } from 'lucide-react'
+import { ArrowLeft, Sparkles, Loader2, RotateCcw, Target, Download, DatabaseBackup, Upload } from 'lucide-react'
 import useCountryBriefStore from '../../stores/countryBriefStore'
 import MetricsRibbon from './blocks/MetricsRibbon'
 import ExecSummaryBlock from './blocks/ExecSummaryBlock'
@@ -177,9 +177,10 @@ export default function CountryBrief() {
     setSelectedCountry, setStartYear, setEndYear, setFocus,
     generateBrief, resetBrief, openSidebar, setFdiFlowMode,
     kpiSelectionMode, setKpiSelectionMode, kpiCatalog, selectedKpiIds, toggleKpiId, fetchKpiCatalog,
+    debugMode, fetchDebugMode, storeTestReport, loadTestReport,
   } = useCountryBriefStore()
 
-  useEffect(() => { fetchKpiCatalog() }, [fetchKpiCatalog])
+  useEffect(() => { fetchKpiCatalog(); fetchDebugMode() }, [fetchKpiCatalog, fetchDebugMode])
 
   const handleDiscuss = useCallback((blockIndex, title, content) => {
     openSidebar(blockIndex, title, content)
@@ -341,7 +342,7 @@ export default function CountryBrief() {
             <div className="mt-6 rounded-lg bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-xs max-w-md mx-auto">{error}</div>
           )}
 
-          <div className="mt-8 text-center">
+          <div className="mt-8 flex flex-col items-center gap-3">
             <button
               onClick={generateBrief}
               disabled={!selectedCountry || generating}
@@ -354,6 +355,14 @@ export default function CountryBrief() {
               <Sparkles className="w-4 h-4" />
               Generate Brief{selectedCountry ? ` — ${countryNames[selectedCountry] || selectedCountry}` : ''}
             </button>
+            {debugMode && (
+              <button
+                onClick={loadTestReport}
+                className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-xl hover:bg-amber-100 transition"
+              >
+                <Upload className="w-3.5 h-3.5" />Load test report
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -397,6 +406,15 @@ export default function CountryBrief() {
             </div>
 
             <div className="flex items-center gap-2 flex-wrap justify-end">
+              {debugMode && (
+                <button
+                  type="button"
+                  onClick={storeTestReport}
+                  className="inline-flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-xl hover:bg-amber-100 transition"
+                >
+                  <DatabaseBackup className="w-3.5 h-3.5" />Store test report
+                </button>
+              )}
               <button
                 type="button"
                 onClick={resetBrief}

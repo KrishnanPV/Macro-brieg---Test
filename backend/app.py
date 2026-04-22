@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -44,6 +45,11 @@ app.include_router(graph.router)
 app.include_router(export.router)
 app.include_router(country_brief_router)
 app.include_router(costs.router)
+
+
+@app.get("/api/debug-mode")
+def debug_mode():
+    return {"debug": os.environ.get("MACROBRIEF_DEBUG") == "1"}
 
 
 if __name__ == "__main__":

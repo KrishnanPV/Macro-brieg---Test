@@ -54,6 +54,9 @@ const useCountryBriefStore = create(
       /** Newscatcher articles for [src:N] markers (same order as backend catalog). */
       newsArticles: [],
 
+      // --- Debug mode (not persisted) ---
+      debugMode: false,
+
       // --- Sidebar chat state ---
       sidebarOpen: false,
       activeSectionIndex: null,
@@ -126,6 +129,72 @@ const useCountryBriefStore = create(
           const data = await resp.json()
           set({ kpiCatalog: data })
         } catch { /* best-effort */ }
+      },
+
+      fetchDebugMode: async () => {
+        try {
+          const resp = await fetch('/api/debug-mode')
+          const data = await resp.json()
+          set({ debugMode: !!data.debug })
+        } catch { /* best-effort */ }
+      },
+
+      storeTestReport: async () => {
+        const { selectedCountry, startYear, endYear, focus, blocks, kpiDataCache, fdiBenchmark, triageResults, newsArticles } = get()
+        try {
+          const resp = await fetch('/api/country-brief/test-report/store', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              country: selectedCountry,
+              startYear,
+              endYear,
+              focus,
+              blocks,
+              kpiDataCache,
+              fdiBenchmark,
+              triageResults,
+              newsArticles,
+            }),
+          })
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+          set({ error: '' })
+          return true
+        } catch (e) {
+          set({ error: e.message || 'Failed to store test report.' })
+          return false
+        }
+      },
+
+      loadTestReport: async () => {
+        set({ generating: true, statusMessage: 'Loading test report…', error: '' })
+        try {
+          const resp = await fetch('/api/country-brief/test-report/load')
+          if (!resp.ok) {
+            const detail = await resp.json().catch(() => ({}))
+            throw new Error(detail.detail || `HTTP ${resp.status}`)
+          }
+          const data = await resp.json()
+          set({
+            selectedCountry: data.country,
+            startYear: data.startYear,
+            endYear: data.endYear,
+            focus: data.focus || '',
+            blocks: data.blocks,
+            kpiDataCache: data.kpiDataCache || [],
+            fdiBenchmark: data.fdiBenchmark || null,
+            triageResults: data.triageResults || [],
+            newsArticles: data.newsArticles || [],
+            briefGenerated: true,
+            generating: false,
+            statusMessage: '',
+            streamingText: '',
+            sidebarOpen: false,
+            sidebarHistory: {},
+          })
+        } catch (e) {
+          set({ error: e.message, generating: false, statusMessage: '' })
+        }
       },
 
       resetBrief: () => set({

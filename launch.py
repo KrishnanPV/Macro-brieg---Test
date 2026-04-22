@@ -5,6 +5,7 @@ Stop with Ctrl+C (or SIGTERM): child processes are terminated cleanly.
 Run from the project root:
   python launch.py                  # main platform (frontend on :5173)
   python launch.py --insights-lab   # insights lab  (insights_lab on :5174)
+  python launch.py --debug          # enable test-report store/load buttons
 """
 from __future__ import annotations
 
@@ -71,11 +72,18 @@ def _parse_args() -> argparse.Namespace:
         dest="insights_lab",
         help="Start the Insights Lab frontend (port 5174) instead of the main UI.",
     )
+    p.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable test-report store/load buttons in the Country Brief UI.",
+    )
     return p.parse_args()
 
 
 def main() -> None:
     args = _parse_args()
+    if args.debug:
+        os.environ["MACROBRIEF_DEBUG"] = "1"
     os.chdir(ROOT)
 
     fe_dir = INSIGHTS_LAB if args.insights_lab else FRONTEND
