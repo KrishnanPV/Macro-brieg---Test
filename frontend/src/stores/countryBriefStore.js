@@ -45,6 +45,8 @@ const useCountryBriefStore = create(
       streamingText: '',
       blocks: [],
       kpiDataCache: [],
+      fdiBenchmark: null,
+      fdiFlowMode: 'inflow',
       triageResults: [],
       error: '',
       briefGenerated: false,
@@ -61,7 +63,8 @@ const useCountryBriefStore = create(
       // --- Setters ---
       setSelectedCountry: (code) => set({
         selectedCountry: code, briefGenerated: false, blocks: [],
-        kpiDataCache: [], triageResults: [], error: '', streamingText: '',
+        kpiDataCache: [], fdiBenchmark: null, fdiFlowMode: 'inflow',
+        triageResults: [], error: '', streamingText: '',
         newsArticles: [],
         sidebarOpen: false, activeSectionIndex: null, sidebarHistory: {},
       }),
@@ -69,6 +72,9 @@ const useCountryBriefStore = create(
       setEndYear: (y) => set({ endYear: y }),
       setFocus: (f) => set({ focus: f }),
       setError: (e) => set({ error: e }),
+      setFdiFlowMode: (mode) => set({
+        fdiFlowMode: mode === 'outflow' ? 'outflow' : 'inflow',
+      }),
       setKpiSelectionMode: (mode) => set({ kpiSelectionMode: mode }),
       toggleKpiId: (id) => set((s) => {
         const ids = s.selectedKpiIds.includes(id)
@@ -87,7 +93,8 @@ const useCountryBriefStore = create(
 
       resetBrief: () => set({
         selectedCountry: null, briefGenerated: false, blocks: [],
-        kpiDataCache: [], triageResults: [], error: '', focus: '',
+        kpiDataCache: [], fdiBenchmark: null, fdiFlowMode: 'inflow',
+        triageResults: [], error: '', focus: '',
         streamingText: '', statusMessage: '', generating: false,
         newsArticles: [],
         sidebarOpen: false, activeSectionIndex: null, sidebarHistory: {},
@@ -115,6 +122,8 @@ const useCountryBriefStore = create(
             focus: brief?.focus ?? '',
             blocks: [],
             kpiDataCache: [],
+            fdiBenchmark: null,
+            fdiFlowMode: 'inflow',
             triageResults: [],
             briefGenerated: false,
             error: '',
@@ -158,6 +167,8 @@ const useCountryBriefStore = create(
           focus,
           blocks: [],
           kpiDataCache: [],
+          fdiBenchmark: null,
+          fdiFlowMode: 'inflow',
           triageResults: [],
           briefGenerated: false,
           error: '',
@@ -181,6 +192,7 @@ const useCountryBriefStore = create(
 
         set({
           generating: true, error: '', blocks: [], kpiDataCache: [],
+          fdiBenchmark: null, fdiFlowMode: 'inflow',
           triageResults: [], streamingText: '', statusMessage: 'Starting...',
           briefGenerated: false, newsArticles: [], sidebarOpen: false, sidebarHistory: {},
         })
@@ -230,6 +242,8 @@ const useCountryBriefStore = create(
                   set({ statusMessage: chunk.content })
                 } else if (chunk.type === 'kpi_data') {
                   set({ kpiDataCache: chunk.content })
+                } else if (chunk.type === 'fdi_benchmark') {
+                  set({ fdiBenchmark: chunk.content })
                 } else if (chunk.type === 'triage') {
                   set({ triageResults: chunk.content })
                 } else if (chunk.type === 'news_catalog') {
@@ -312,6 +326,8 @@ const useCountryBriefStore = create(
         focus: state.focus,
         blocks: state.blocks,
         kpiDataCache: state.kpiDataCache,
+        fdiBenchmark: state.fdiBenchmark,
+        fdiFlowMode: state.fdiFlowMode,
         triageResults: state.triageResults,
         briefGenerated: state.briefGenerated,
         newsArticles: state.newsArticles,

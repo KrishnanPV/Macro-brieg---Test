@@ -7,6 +7,7 @@ import { Copy, FileSpreadsheet } from 'lucide-react'
 import ChartFrequencyToggle from '../../../components/ui/ChartFrequencyToggle'
 import { SERIES_COLORS } from '../../../lib/colors'
 import { formatAbbrevNumber, formatAxisTick } from '../../../lib/formatNumbers'
+import FdiBenchmarkChart from './FdiBenchmarkChart'
 
 const SCALE_WORDS = {
   billions: 1e9, billion: 1e9,
@@ -125,7 +126,19 @@ function slugify(s) {
   return String(s).replace(/[^\w\d]+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').slice(0, 60) || 'kpi'
 }
 
-export default function InlineChartBlock({ kpiId, kpiDataCache = [], compact = false }) {
+export default function InlineChartBlock({
+  kpiId,
+  kpiDataCache = [],
+  compact = false,
+  fdiBenchmark = null,
+  fdiFlowMode = 'inflow',
+  onFdiFlowModeChange,
+}) {
+  const isFdiBenchmark =
+    String(kpiId) === '4' &&
+    Array.isArray(fdiBenchmark?.countries) &&
+    fdiBenchmark.countries.length > 0
+
   const kpiResult = kpiDataCache.find(r => String(r.kpi_id) === String(kpiId))
   const defaults = KPI_CHART_DEFAULTS[String(kpiId)] || DEFAULT_CHART
   const hasDualFreq = !!(kpiResult?.series_annual?.length)
@@ -148,6 +161,16 @@ export default function InlineChartBlock({ kpiId, kpiDataCache = [], compact = f
     const unit = activeSeries[0]?.unit || kpiResult.unit || ''
     return { seriesKeys: sk, rows: r, kpiName: kpiResult.kpi_name, unitLabel: unit }
   }, [kpiResult, activeSeries])
+
+  if (isFdiBenchmark) {
+    return (
+      <FdiBenchmarkChart
+        benchmarkData={fdiBenchmark}
+        flowMode={fdiFlowMode}
+        onFlowModeChange={onFdiFlowModeChange}
+      />
+    )
+  }
 
   if (!rows.length) return null
 

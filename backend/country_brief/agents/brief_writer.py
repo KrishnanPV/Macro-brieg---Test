@@ -48,7 +48,7 @@ _METRICS_RE = re.compile(r"\[METRICS_RIBBON\](.*?)\[/METRICS_RIBBON\]", re.DOTAL
 _EXEC_RE = re.compile(r"\[EXEC_SUMMARY\](.*?)\[/EXEC_SUMMARY\]", re.DOTALL)
 _SECTION_RE = re.compile(r"\[SECTION:([^\]]+)\](.*?)\[/SECTION\]", re.DOTALL)
 _OUTLOOK_RE = re.compile(r"\[OUTLOOK\](.*?)\[/OUTLOOK\]", re.DOTALL)
-_CHART_RE = re.compile(r"\[CHART:(\d+)\]")
+_CHART_RE = re.compile(r"\[CHART:\s*(\d+)\s*\]", re.IGNORECASE)
 _TW_HW_RE = re.compile(r"\*\*Tailwinds\*\*", re.IGNORECASE)
 
 

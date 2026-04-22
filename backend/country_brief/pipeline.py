@@ -25,7 +25,9 @@ from backend.services.signals import extract_signals
 
 from backend.country_brief.agents.signal_interpreter import interpret_signals
 from backend.country_brief.agents.news_researcher import research_signals
+from backend.country_brief.agents.benchmark_selector import select_benchmark_countries
 from backend.country_brief.agents.brief_writer import stream_brief, parse_brief_blocks
+from backend.country_brief.fdi_benchmark import build_fdi_benchmark_payload
 from backend.country_brief.prompts import build_brief_prompt
 
 log = logging.getLogger(__name__)
@@ -37,6 +39,46 @@ _OIL_NON_OIL_KPI = "2"
 
 def _ndjson(obj: dict[str, Any]) -> str:
     return json.dumps(obj, default=str) + "\n"
+
+
+def _collect_chart_ids(blocks: list[dict[str, Any]]) -> set[str]:
+    chart_ids: set[str] = set()
+    for block in blocks:
+        if block.get("type") != "section":
+            continue
+        for child in block.get("children") or []:
+            if child.get("type") == "chart_ref":
+                kid = str(child.get("kpi_id", "")).strip()
+                if kid:
+                    chart_ids.add(kid)
+    return chart_ids
+
+
+def _ensure_chart_blocks(
+    blocks: list[dict[str, Any]],
+    *,
+    preferred_chart_ids: list[str],
+) -> list[dict[str, Any]]:
+    if not preferred_chart_ids:
+        return blocks
+    existing = _collect_chart_ids(blocks)
+    if existing:
+        return blocks
+
+    fallback_charts = [{"type": "chart_ref", "kpi_id": kid} for kid in preferred_chart_ids]
+    for block in blocks:
+        if block.get("type") != "section":
+            continue
+        children = list(block.get("children") or [])
+        block["children"] = [*children, *fallback_charts]
+        return blocks
+
+    blocks.append({
+        "type": "section",
+        "title": "Data Visuals",
+        "children": fallback_charts,
+    })
+    return blocks
 
 
 def run_pipeline(
@@ -76,6 +118,46 @@ def run_pipeline(
     yield _ndjson({"type": "kpi_data", "content": results_raw})
 
     valid_results = [r for r in results_raw if r.get("series")]
+
+    fdi_benchmark_payload: dict[str, Any] | None = None
+    if "4" in available_ids:
+        yield _ndjson({"type": "status", "content": "Selecting FDI benchmark peers..."})
+        benchmark_selection = select_benchmark_countries(
+            req.country,
+            start_year=req.start_year,
+            end_year=req.end_year,
+        )
+        benchmark_fetch_countries = [req.country, *benchmark_selection.get("backfill_pool", [])]
+        deduped_benchmark_countries: list[str] = []
+        seen_codes: set[str] = set()
+        for code in benchmark_fetch_countries:
+            iso3 = str(code).upper().strip()
+            if not iso3 or iso3 in seen_codes:
+                continue
+            deduped_benchmark_countries.append(iso3)
+            seen_codes.add(iso3)
+
+        if deduped_benchmark_countries:
+            yield _ndjson({"type": "status", "content": "Building FDI benchmark chart data..."})
+            fdi_fetch = fetch_kpi_data(
+                countries=deduped_benchmark_countries,
+                kpi_ids=["4"],
+                timerange_q=timerange,
+                timerange_a=timerange,
+                frequency_overrides={"4": "A"},
+            )
+            fdi_result = None
+            if fdi_fetch.results:
+                fdi_result = fdi_fetch.results[0].model_dump()
+            fdi_benchmark_payload = build_fdi_benchmark_payload(
+                target_country=req.country,
+                start_year=req.start_year,
+                end_year=req.end_year,
+                fdi_result=fdi_result or {},
+                benchmark_selection=benchmark_selection,
+            )
+            if fdi_benchmark_payload:
+                yield _ndjson({"type": "fdi_benchmark", "content": fdi_benchmark_payload})
 
     # ── Phase 2: Agent 1 — Signal Detection + Interpretation ─────────────
     yield _ndjson({"type": "status", "content": "Detecting signals..."})
@@ -148,6 +230,7 @@ def run_pipeline(
         news_prompt_bundle=prompt_bundle,
         focus=req.focus,
         manual_selection=manual_selection,
+        fdi_benchmark_context=fdi_benchmark_payload,
     )
 
     interpretation_json = json.dumps(signal_interpretation, indent=2, default=str)
@@ -176,6 +259,8 @@ def run_pipeline(
 
     # ── Phase 5: Parse and finalize ──────────────────────────────────────
     blocks = parse_brief_blocks(full_text)
+    fallback_chart_ids = [kid for kid in available_ids if kid in ids_with_data]
+    blocks = _ensure_chart_blocks(blocks, preferred_chart_ids=fallback_chart_ids)
     computed_metrics = compute_ribbon_metrics(derived_facts)
     if computed_metrics:
         blocks = [b for b in blocks if b.get("type") != "metrics_ribbon"]

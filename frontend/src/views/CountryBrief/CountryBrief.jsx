@@ -71,7 +71,15 @@ function StreamingProgress({ statusMessage, streamingText }) {
   )
 }
 
-function BriefDocument({ blocks, kpiDataCache, onDiscuss, newsCatalog = [] }) {
+function BriefDocument({
+  blocks,
+  kpiDataCache,
+  fdiBenchmark,
+  fdiFlowMode,
+  onFdiFlowModeChange,
+  onDiscuss,
+  newsCatalog = [],
+}) {
   const metricsBlock = blocks.find(b => b.type === 'metrics_ribbon')
   const execBlock = blocks.find(b => b.type === 'executive_summary')
   const sectionBlocks = blocks.filter(b => b.type === 'section')
@@ -109,6 +117,9 @@ function BriefDocument({ blocks, kpiDataCache, onDiscuss, newsCatalog = [] }) {
                       key={cIdx}
                       kpiId={child.kpi_id}
                       kpiDataCache={kpiDataCache}
+                      fdiBenchmark={fdiBenchmark}
+                      fdiFlowMode={fdiFlowMode}
+                      onFdiFlowModeChange={onFdiFlowModeChange}
                       compact
                     />
                   )) : (
@@ -162,9 +173,9 @@ export default function CountryBrief() {
   const {
     countryOptions, countryNames, selectedCountry,
     startYear, endYear, focus, generating, statusMessage, streamingText,
-    blocks, kpiDataCache, triageResults, error, briefGenerated, newsArticles,
+    blocks, kpiDataCache, fdiBenchmark, fdiFlowMode, triageResults, error, briefGenerated, newsArticles,
     setSelectedCountry, setStartYear, setEndYear, setFocus,
-    generateBrief, resetBrief, openSidebar, sidebarOpen,
+    generateBrief, resetBrief, openSidebar, setFdiFlowMode,
     kpiSelectionMode, setKpiSelectionMode, kpiCatalog, selectedKpiIds, toggleKpiId, fetchKpiCatalog,
   } = useCountryBriefStore()
 
@@ -423,6 +434,9 @@ export default function CountryBrief() {
         <BriefDocument
           blocks={blocks}
           kpiDataCache={kpiDataCache}
+          fdiBenchmark={fdiBenchmark}
+          fdiFlowMode={fdiFlowMode}
+          onFdiFlowModeChange={setFdiFlowMode}
           onDiscuss={handleDiscuss}
           newsCatalog={newsArticles}
         />

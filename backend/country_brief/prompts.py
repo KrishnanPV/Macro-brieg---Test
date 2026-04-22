@@ -171,6 +171,89 @@ Weight your analysis toward this focus. Dedicate more depth and narrative space 
 """
 
 
+BENCHMARK_SELECTOR_SYSTEM_PROMPT = """\
+You are selecting benchmark countries for an FDI comparison chart.
+
+Output JSON ONLY in this exact shape:
+{"global":["ISO3","ISO3"],"regional":["ISO3","ISO3"]}
+
+Rules:
+- Exactly 2 global peers and exactly 2 regional peers.
+- Use only the allowed candidate pools.
+- Never include the target country.
+- No duplicate countries across both lists.
+- Return ISO3 codes only.
+- Prefer countries with reasonably comparable economy/FDI scale to the target.
+- Avoid selecting extreme superpower outliers unless no comparable alternatives are available.
+"""
+
+
+def build_benchmark_selector_prompt(
+    *,
+    country: str,
+    country_name: str,
+    region_group: str,
+    start_year: int,
+    end_year: int,
+    global_pool: list[str],
+    regional_pool: list[str],
+) -> str:
+    return (
+        f"Target country: {country} ({country_name})\n"
+        f"Target region group: {region_group}\n"
+        f"Window: {start_year}-{end_year}\n\n"
+        f"Allowed global candidates: {', '.join(global_pool)}\n"
+        f"Allowed regional candidates: {', '.join(regional_pool)}\n"
+    )
+
+
+def parse_benchmark_selector_response(
+    text: str,
+    *,
+    target_country: str,
+    global_pool: list[str],
+    regional_pool: list[str],
+) -> dict[str, list[str]]:
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        lines = cleaned.split("\n")
+        lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        cleaned = "\n".join(lines)
+
+    parsed = json.loads(cleaned)
+    if not isinstance(parsed, dict):
+        raise ValueError("Benchmark selector response is not a JSON object.")
+
+    target = target_country.upper()
+    global_allowed = {c.upper() for c in global_pool}
+    regional_allowed = {c.upper() for c in regional_pool}
+
+    selected_global: list[str] = []
+    seen: set[str] = {target}
+    for raw in parsed.get("global", []):
+        code = str(raw).upper().strip()
+        if not code or code in seen or code not in global_allowed:
+            continue
+        selected_global.append(code)
+        seen.add(code)
+        if len(selected_global) == 2:
+            break
+
+    selected_regional: list[str] = []
+    for raw in parsed.get("regional", []):
+        code = str(raw).upper().strip()
+        if not code or code in seen or code not in regional_allowed:
+            continue
+        selected_regional.append(code)
+        seen.add(code)
+        if len(selected_regional) == 2:
+            break
+
+    return {"global": selected_global, "regional": selected_regional}
+
+
 def build_brief_prompt(
     country: str,
     start_year: int,
@@ -182,6 +265,7 @@ def build_brief_prompt(
     news_prompt_bundle: dict[str, Any] | None = None,
     focus: str | None = None,
     manual_selection: bool = False,
+    fdi_benchmark_context: dict[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     """Assemble the ChatCompletion messages for brief generation."""
 
@@ -222,6 +306,7 @@ def build_brief_prompt(
         "notable_kpi_ids": notable_kpi_ids,
         "results": filtered_results,
         "derived_facts": filtered_facts,
+        "fdi_benchmark_context": fdi_benchmark_context or {},
     }
 
     news_block = ""
@@ -256,11 +341,21 @@ def build_brief_prompt(
             "the user chose it deliberately.\n"
         )
 
+    fdi_benchmark_block = ""
+    if fdi_benchmark_context:
+        fdi_json = json.dumps(fdi_benchmark_context, default=str)
+        fdi_benchmark_block = (
+            "\n\nFDI_BENCHMARK_CONTEXT (JSON) — authoritative comparator set for KPI 4:\n"
+            f"```json\n{fdi_json}\n```\n"
+            "If you discuss KPI 4 (FDI), use these benchmark peers consistently in prose.\n"
+        )
+
     user_content = (
         f"Generate a country brief for **{country}** covering {start_year}–{end_year}.\n\n"
         "DATA_CONTEXT (JSON):\n"
         f"```json\n{json.dumps(data_context, default=str)}\n```\n"
         + news_block
+        + fdi_benchmark_block
         + "\n"
         "Per-KPI notability lenses:\n\n"
         + "\n".join(lens_blocks)
