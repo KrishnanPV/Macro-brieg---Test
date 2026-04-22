@@ -66,11 +66,40 @@ DATE AND TIME REFERENCES — strict:
 - Never cite ISO timestamps or machine-formatted dates.
 - RULE OF THUMB: If you wrote "Q3 2025" anywhere, ask yourself — would "2025" suffice? If yes, use "2025".
 
+INSIGHT FRAMEWORK — "What / So What / Now What" (WSN):
+Every bullet follows this chain:
+  WHAT: the economic observation, stated as a narrative claim (NOT a raw number).
+  SO WHAT: why it matters — the causal mechanism, comparative context, or analytical interpretation.
+  NOW WHAT (where appropriate, especially in Implications): forward-looking consequence, risk, or action trigger.
+Each Key Findings bullet MUST contain at least What + So What. Implications bullets should complete the full WSN chain.
+
 MCKINSEY-STYLE EXECUTION — insight first, succinct, ordered:
 - LEAD WITH THE INSIGHT, not the number. The economic meaning is the headline; numbers are supporting evidence placed after the claim. Do not open a sentence with a raw statistic unless it is the deliberate headline figure.
   WRONG: "336,777 was the FDI value in Q3 2024." RIGHT: "Inward FDI rebounded sharply in 2024, reaching ~340K as the new Investment Law took effect."
 - Be SUCCINCT. Target one tight sentence per bullet; two sentences only when comparing periods or tracing a causal chain. No multi-clause "wall of text" bullets. Cut filler words ruthlessly.
 - ORDER: In Summary and Key Findings, describe what the data actually show through the latest period first, then connect to trajectory. In Implications, order each bullet as: (1) pattern from the data → (2) mechanism / context → (3) forward implication or risk. Do not open with speculative futures before anchoring what the series actually did.
+
+GEI LANGUAGE STANDARDS:
+
+Sentence templates — model these four patterns:
+  1. Narrative lead + evidence: "[Subject] [verb of direction/change], [causal mechanism] — [evidence]."
+     "Eurozone GDP delivered an upside surprise in Q3 by growing 0.3% — 0.0% was expected."
+  2. Contrast pattern: "[Positive development], [but/while/however] [counterpoint or risk]."
+     "Economy ends the year on a high note, but still a long way to go to pre-pandemic momentum."
+  3. Transmission channel pattern: "[Policy/event] + [mechanism] + [observed outcome]."
+     "Higher tariffs weighed on industrial sectors — Germany and Italy stagnated as a result."
+  4. Institutional anchor pattern: "[Institution] [projects/forecasts/estimates] [claim], [conditional clause]."
+     "The IMF projects GDP to expand by 2.1% in 2025, supported by fiscal policy and a lower policy rate."
+
+Transition vocabulary — bullets should use connectors that link to the preceding bullet or section theme where natural:
+  Approved connectors: "Against this backdrop", "Meanwhile", "However", "That said", "In contrast", "Compounding this", "Looking ahead", "Nevertheless".
+  Do not force connectors — omit when the logical link is already clear.
+
+Hedging calibration:
+  - "projects" or "forecasts" for attributed institutional views.
+  - "likely driven by" or "consistent with" for inferred causal explanations.
+  - "suggests" or "points to" for forward implications.
+  - "despite" or "notwithstanding" when a trend defies expectations.
 
 WRITING STYLE — narrative-driven, not mechanical:
 - DO NOT simply list numbers with minimal commentary. Numbers are evidence, not the insight itself. The insight is the STORY the numbers tell.
@@ -204,6 +233,9 @@ def build_insight_prompt(
             block += "\n".join(f"- {h}" for h in lens.context_hooks) + "\n"
         if lens.forbidden_claims:
             block += "Forbidden claims:\n" + "\n".join(f"- {f}" for f in lens.forbidden_claims) + "\n"
+        if lens.narrative_guidance:
+            block += "How to write about this indicator:\n"
+            block += "\n".join(f"- {g}" for g in lens.narrative_guidance) + "\n"
         data_unit = kpi_units.get(kpi_id, "")
         if data_unit:
             block += f"Data unit (from source): {data_unit}\n"

@@ -131,13 +131,19 @@ export default function InlineChartBlock({
   kpiDataCache = [],
   compact = false,
   fdiBenchmark = null,
-  fdiFlowMode = 'inflow',
+  fdiFlowMode = 'chart',
   onFdiFlowModeChange,
+  onFdiBenchmarkYearChange,
 }) {
-  const isFdiBenchmark =
-    String(kpiId) === '4' &&
+  const isFdiKpi =
+    String(kpiId) === '4'
+  const hasFdiBenchmark =
     Array.isArray(fdiBenchmark?.countries) &&
     fdiBenchmark.countries.length > 0
+  const showFdiBenchmark =
+    isFdiKpi &&
+    hasFdiBenchmark &&
+    fdiFlowMode !== 'chart'
 
   const kpiResult = kpiDataCache.find(r => String(r.kpi_id) === String(kpiId))
   const defaults = KPI_CHART_DEFAULTS[String(kpiId)] || DEFAULT_CHART
@@ -162,12 +168,13 @@ export default function InlineChartBlock({
     return { seriesKeys: sk, rows: r, kpiName: kpiResult.kpi_name, unitLabel: unit }
   }, [kpiResult, activeSeries])
 
-  if (isFdiBenchmark) {
+  if (showFdiBenchmark) {
     return (
       <FdiBenchmarkChart
         benchmarkData={fdiBenchmark}
         flowMode={fdiFlowMode}
         onFlowModeChange={onFdiFlowModeChange}
+        onYearRangeChange={onFdiBenchmarkYearChange}
       />
     )
   }
@@ -180,6 +187,11 @@ export default function InlineChartBlock({
   const axisFmt = isQuarterly ? (d) => quarterlyAxisLabel(d, lay) : (d) => isoToYearLabel(d, lay)
   const ticks = isQuarterly ? rows.map(r => r.date) : computeAnnualTicks(rows)
   const fileBase = `kpi_${kpiId}_${slugify(kpiName)}`
+  const activeVizMode = vizMode
+  const fdiViewMode = hasFdiBenchmark
+    ? (['chart', 'inflow', 'outflow'].includes(fdiFlowMode) ? fdiFlowMode : 'chart')
+    : 'chart'
+  const isBenchmarkMode = isFdiKpi && fdiViewMode !== 'chart'
 
   const handleCopy = async () => {
     try {
@@ -213,9 +225,13 @@ export default function InlineChartBlock({
           </div>
           <div className="flex items-center gap-1.5">
             {hasDualFreq && (
-              <ChartFrequencyToggle value={freq} loading={false} onChange={setFreq} />
+              <div className={isFdiKpi && isBenchmarkMode ? 'opacity-0 pointer-events-none' : ''}>
+                <ChartFrequencyToggle value={freq} loading={false} onChange={setFreq} />
+              </div>
             )}
-            <div className="inline-flex rounded-lg border border-slate-200 overflow-hidden">
+            <div className={`inline-flex rounded-lg border border-slate-200 overflow-hidden ${
+              isFdiKpi && isBenchmarkMode ? 'opacity-0 pointer-events-none' : ''
+            }`}>
               <button type="button" onClick={() => setVizMode('bar')}
                 className={`px-2 py-1 text-[11px] font-medium transition-all ${
                   vizMode === 'bar' ? 'bg-mck-navy text-white' : 'bg-white text-slate-500 hover:bg-slate-50'
@@ -227,12 +243,29 @@ export default function InlineChartBlock({
                 }`}
               >Line</button>
             </div>
+            {isFdiKpi && (
+              <>
+                <div className="w-px h-4 bg-slate-200 mx-0.5" />
+                <button
+                  type="button"
+                  disabled={!hasFdiBenchmark}
+                  onClick={() => onFdiFlowModeChange?.(isBenchmarkMode ? 'chart' : 'inflow')}
+                  className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg transition-all ${
+                    isBenchmarkMode
+                      ? 'bg-amber-500 text-white shadow-sm shadow-amber-500/25'
+                      : 'bg-amber-50 text-amber-700 border border-amber-300 hover:bg-amber-100'
+                  } ${!hasFdiBenchmark ? 'opacity-40 cursor-not-allowed hover:bg-amber-50' : ''}`}
+                >
+                  Benchmark
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
       <div className={compact ? "px-2 py-2" : "px-4 py-3"}>
         <ResponsiveContainer width="100%" height={chartHeight}>
-          {vizMode === 'bar' ? (
+          {activeVizMode === 'bar' ? (
             <BarChart data={rows}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
               <XAxis dataKey="date" tickFormatter={axisFmt} ticks={ticks} interval={0}

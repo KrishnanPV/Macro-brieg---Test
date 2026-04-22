@@ -7,7 +7,7 @@ export default function ChartFrequencyToggle({ value, loading, onChange, wide })
         type="button"
         disabled={loading}
         onClick={() => onChange('A')}
-        className={`px-2.5 py-1.5 text-[12px] font-medium transition-all ${
+        className={`px-2 py-1 text-[11px] font-medium transition-all ${
           wide ? 'flex-1' : ''
         } ${!isQ ? 'bg-mck-navy text-white' : 'bg-white text-slate-500 hover:bg-slate-50'} ${
           loading ? 'opacity-50 cursor-wait' : ''
@@ -19,7 +19,7 @@ export default function ChartFrequencyToggle({ value, loading, onChange, wide })
         type="button"
         disabled={loading}
         onClick={() => onChange('Q')}
-        className={`px-2.5 py-1.5 text-[12px] font-medium transition-all border-l border-slate-200 ${
+        className={`px-2 py-1 text-[11px] font-medium transition-all border-l border-slate-200 ${
           wide ? 'flex-1' : ''
         } ${isQ ? 'bg-mck-navy text-white' : 'bg-white text-slate-500 hover:bg-slate-50'} ${
           loading ? 'opacity-50 cursor-wait' : ''

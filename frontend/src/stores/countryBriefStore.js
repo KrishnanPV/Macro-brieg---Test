@@ -46,7 +46,8 @@ const useCountryBriefStore = create(
       blocks: [],
       kpiDataCache: [],
       fdiBenchmark: null,
-      fdiFlowMode: 'inflow',
+      fdiBenchmarkCacheKey: null,
+      fdiFlowMode: 'chart',
       triageResults: [],
       error: '',
       briefGenerated: false,
@@ -63,7 +64,7 @@ const useCountryBriefStore = create(
       // --- Setters ---
       setSelectedCountry: (code) => set({
         selectedCountry: code, briefGenerated: false, blocks: [],
-        kpiDataCache: [], fdiBenchmark: null, fdiFlowMode: 'inflow',
+        kpiDataCache: [], fdiBenchmark: null, fdiBenchmarkCacheKey: null, fdiFlowMode: 'chart',
         triageResults: [], error: '', streamingText: '',
         newsArticles: [],
         sidebarOpen: false, activeSectionIndex: null, sidebarHistory: {},
@@ -73,8 +74,44 @@ const useCountryBriefStore = create(
       setFocus: (f) => set({ focus: f }),
       setError: (e) => set({ error: e }),
       setFdiFlowMode: (mode) => set({
-        fdiFlowMode: mode === 'outflow' ? 'outflow' : 'inflow',
+        fdiFlowMode: ['chart', 'inflow', 'outflow'].includes(mode) ? mode : 'chart',
       }),
+      refreshFdiBenchmark: async (startYear, endYear) => {
+        const { fdiBenchmarkCacheKey } = get()
+        if (!fdiBenchmarkCacheKey) {
+          set({ error: 'FDI benchmark cache unavailable. Regenerate the brief.' })
+          return null
+        }
+        if (startYear >= endYear) {
+          set({ error: 'Start year must be earlier than end year.' })
+          return null
+        }
+        try {
+          const resp = await fetch('/api/country-brief/fdi-benchmark', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              benchmark_cache_key: fdiBenchmarkCacheKey,
+              start_year: startYear,
+              end_year: endYear,
+            }),
+          })
+          if (!resp.ok) {
+            const detail = await resp.json().catch(() => ({}))
+            throw new Error(detail.detail || `HTTP ${resp.status}`)
+          }
+          const payload = await resp.json()
+          set({
+            fdiBenchmark: payload,
+            fdiBenchmarkCacheKey: payload?.benchmark_cache_key || fdiBenchmarkCacheKey,
+            error: '',
+          })
+          return payload
+        } catch (e) {
+          set({ error: e.message || 'Failed to refresh FDI benchmark.' })
+          return null
+        }
+      },
       setKpiSelectionMode: (mode) => set({ kpiSelectionMode: mode }),
       toggleKpiId: (id) => set((s) => {
         const ids = s.selectedKpiIds.includes(id)
@@ -93,7 +130,7 @@ const useCountryBriefStore = create(
 
       resetBrief: () => set({
         selectedCountry: null, briefGenerated: false, blocks: [],
-        kpiDataCache: [], fdiBenchmark: null, fdiFlowMode: 'inflow',
+        kpiDataCache: [], fdiBenchmark: null, fdiBenchmarkCacheKey: null, fdiFlowMode: 'chart',
         triageResults: [], error: '', focus: '',
         streamingText: '', statusMessage: '', generating: false,
         newsArticles: [],
@@ -123,7 +160,8 @@ const useCountryBriefStore = create(
             blocks: [],
             kpiDataCache: [],
             fdiBenchmark: null,
-            fdiFlowMode: 'inflow',
+            fdiBenchmarkCacheKey: null,
+            fdiFlowMode: 'chart',
             triageResults: [],
             briefGenerated: false,
             error: '',
@@ -168,7 +206,8 @@ const useCountryBriefStore = create(
           blocks: [],
           kpiDataCache: [],
           fdiBenchmark: null,
-          fdiFlowMode: 'inflow',
+          fdiBenchmarkCacheKey: null,
+          fdiFlowMode: 'chart',
           triageResults: [],
           briefGenerated: false,
           error: '',
@@ -192,7 +231,7 @@ const useCountryBriefStore = create(
 
         set({
           generating: true, error: '', blocks: [], kpiDataCache: [],
-          fdiBenchmark: null, fdiFlowMode: 'inflow',
+          fdiBenchmark: null, fdiBenchmarkCacheKey: null, fdiFlowMode: 'chart',
           triageResults: [], streamingText: '', statusMessage: 'Starting...',
           briefGenerated: false, newsArticles: [], sidebarOpen: false, sidebarHistory: {},
         })
@@ -243,7 +282,10 @@ const useCountryBriefStore = create(
                 } else if (chunk.type === 'kpi_data') {
                   set({ kpiDataCache: chunk.content })
                 } else if (chunk.type === 'fdi_benchmark') {
-                  set({ fdiBenchmark: chunk.content })
+                  set({
+                    fdiBenchmark: chunk.content,
+                    fdiBenchmarkCacheKey: chunk.content?.benchmark_cache_key || null,
+                  })
                 } else if (chunk.type === 'triage') {
                   set({ triageResults: chunk.content })
                 } else if (chunk.type === 'news_catalog') {
@@ -327,6 +369,7 @@ const useCountryBriefStore = create(
         blocks: state.blocks,
         kpiDataCache: state.kpiDataCache,
         fdiBenchmark: state.fdiBenchmark,
+        fdiBenchmarkCacheKey: state.fdiBenchmarkCacheKey,
         fdiFlowMode: state.fdiFlowMode,
         triageResults: state.triageResults,
         briefGenerated: state.briefGenerated,
