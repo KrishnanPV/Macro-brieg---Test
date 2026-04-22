@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
+from datetime import datetime
 from typing import Any, Iterator
 
 from backend.config import OPENAI_MODEL
@@ -36,9 +38,51 @@ log = logging.getLogger(__name__)
 _GCC_CODES = frozenset({"SAU", "ARE", "QAT", "KWT", "BHR", "OMN"})
 _OIL_NON_OIL_KPI = "2"
 
+# In-memory cache so the frontend can re-slice FDI benchmarks by year
+# without re-fetching from Oxford Economics. Keyed by a random UUID.
+_fdi_benchmark_cache: dict[str, dict[str, Any]] = {}
+
 
 def _ndjson(obj: dict[str, Any]) -> str:
     return json.dumps(obj, default=str) + "\n"
+
+
+def _extract_all_years(fdi_result: dict[str, Any]) -> list[int]:
+    years: set[int] = set()
+    for s in fdi_result.get("series") or []:
+        for p in s.get("points") or []:
+            d = p.get("date")
+            if not d:
+                continue
+            try:
+                years.add(datetime.fromisoformat(str(d).replace("Z", "+00:00")).year)
+            except Exception:
+                continue
+    return sorted(years)
+
+
+def recompute_fdi_benchmark(
+    cache_key: str,
+    start_year: int,
+    end_year: int,
+) -> dict[str, Any] | None:
+    """Re-slice a cached FDI benchmark for a new year window."""
+    cached = _fdi_benchmark_cache.get(cache_key)
+    if not cached:
+        return None
+    payload = build_fdi_benchmark_payload(
+        target_country=cached["target_country"],
+        start_year=start_year,
+        end_year=end_year,
+        fdi_result=cached["fdi_result"],
+        benchmark_selection=cached["benchmark_selection"],
+    )
+    if payload:
+        payload["benchmark_cache_key"] = cache_key
+        all_years = _extract_all_years(cached["fdi_result"])
+        payload["min_year"] = min(all_years) if all_years else start_year
+        payload["max_year"] = max(all_years) if all_years else end_year
+    return payload
 
 
 def _collect_chart_ids(blocks: list[dict[str, Any]]) -> set[str]:
@@ -157,6 +201,16 @@ def run_pipeline(
                 benchmark_selection=benchmark_selection,
             )
             if fdi_benchmark_payload:
+                cache_key = uuid.uuid4().hex
+                _fdi_benchmark_cache[cache_key] = {
+                    "target_country": req.country,
+                    "fdi_result": fdi_result or {},
+                    "benchmark_selection": benchmark_selection,
+                }
+                fdi_benchmark_payload["benchmark_cache_key"] = cache_key
+                all_years = _extract_all_years(fdi_result or {})
+                fdi_benchmark_payload["min_year"] = min(all_years) if all_years else req.start_year
+                fdi_benchmark_payload["max_year"] = max(all_years) if all_years else req.end_year
                 yield _ndjson({"type": "fdi_benchmark", "content": fdi_benchmark_payload})
 
     # ── Phase 2: Agent 1 — Signal Detection + Interpretation ─────────────

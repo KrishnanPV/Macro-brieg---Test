@@ -161,15 +161,8 @@ export default function FdiBenchmarkChart({
             <div className="inline-flex rounded-lg border border-slate-200 overflow-hidden">
               <button
                 type="button"
-                onClick={() => onFlowModeChange?.('chart')}
-                className="px-2 py-1 text-[11px] font-medium transition-all bg-white text-slate-500 hover:bg-slate-50"
-              >
-                Chart
-              </button>
-              <button
-                type="button"
                 onClick={() => onFlowModeChange?.('inflow')}
-                className={`px-2 py-1 text-[11px] font-medium transition-all border-l border-slate-200 ${
+                className={`px-2 py-1 text-[11px] font-medium transition-all ${
                   normalizedFlow === 'inflow' ? 'bg-mck-navy text-white' : 'bg-white text-slate-500 hover:bg-slate-50'
                 }`}
               >
@@ -185,6 +178,14 @@ export default function FdiBenchmarkChart({
                 Outflow
               </button>
             </div>
+            <div className="w-px h-4 bg-slate-200 mx-0.5" />
+            <button
+              type="button"
+              onClick={() => onFlowModeChange?.('chart')}
+              className="px-2.5 py-1 text-[11px] font-semibold rounded-lg transition-all bg-amber-50 text-amber-700 border border-amber-300 hover:bg-amber-100"
+            >
+              Chart
+            </button>
           </div>
         </div>
       </div>

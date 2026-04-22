@@ -77,6 +77,7 @@ function BriefDocument({
   fdiBenchmark,
   fdiFlowMode,
   onFdiFlowModeChange,
+  onFdiBenchmarkYearChange,
   onDiscuss,
   newsCatalog = [],
 }) {
@@ -120,6 +121,7 @@ function BriefDocument({
                       fdiBenchmark={fdiBenchmark}
                       fdiFlowMode={fdiFlowMode}
                       onFdiFlowModeChange={onFdiFlowModeChange}
+                      onFdiBenchmarkYearChange={onFdiBenchmarkYearChange}
                       compact
                     />
                   )) : (
@@ -178,6 +180,7 @@ export default function CountryBrief() {
     generateBrief, resetBrief, openSidebar, setFdiFlowMode,
     kpiSelectionMode, setKpiSelectionMode, kpiCatalog, selectedKpiIds, toggleKpiId, fetchKpiCatalog,
     debugMode, fetchDebugMode, storeTestReport, loadTestReport,
+    refreshFdiBenchmark,
   } = useCountryBriefStore()
 
   useEffect(() => { fetchKpiCatalog(); fetchDebugMode() }, [fetchKpiCatalog, fetchDebugMode])
@@ -455,6 +458,7 @@ export default function CountryBrief() {
           fdiBenchmark={fdiBenchmark}
           fdiFlowMode={fdiFlowMode}
           onFdiFlowModeChange={setFdiFlowMode}
+          onFdiBenchmarkYearChange={refreshFdiBenchmark}
           onDiscuss={handleDiscuss}
           newsCatalog={newsArticles}
         />

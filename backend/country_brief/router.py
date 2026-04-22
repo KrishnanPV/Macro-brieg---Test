@@ -13,7 +13,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from backend.models.schemas import CountryBriefGenerateRequest, CountryBriefRefineRequest
-from backend.country_brief.pipeline import run_pipeline
+from backend.country_brief.pipeline import run_pipeline, recompute_fdi_benchmark
 from backend.country_brief.agents.brief_writer import stream_refine
 
 log = logging.getLogger(__name__)
@@ -46,6 +46,23 @@ def refine_section(req: CountryBriefRefineRequest):
             yield json.dumps({"type": event_type, "content": content}) + "\n"
 
     return StreamingResponse(_stream(), media_type="application/x-ndjson")
+
+
+@router.post("/fdi-benchmark")
+async def refresh_fdi_benchmark(request: Request):
+    """Re-slice FDI benchmark data for a different year window."""
+    body = await request.json()
+    cache_key = body.get("benchmark_cache_key")
+    start_year = body.get("start_year")
+    end_year = body.get("end_year")
+    if not cache_key or start_year is None or end_year is None:
+        raise HTTPException(status_code=400, detail="Missing required fields.")
+    if int(start_year) >= int(end_year):
+        raise HTTPException(status_code=400, detail="start_year must be less than end_year.")
+    result = recompute_fdi_benchmark(cache_key, int(start_year), int(end_year))
+    if result is None:
+        raise HTTPException(status_code=404, detail="Benchmark cache expired or not found. Regenerate the brief.")
+    return result
 
 
 def _require_debug():
