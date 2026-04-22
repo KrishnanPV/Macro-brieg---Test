@@ -47,6 +47,14 @@ def _ndjson(obj: dict[str, Any]) -> str:
     return json.dumps(obj, default=str) + "\n"
 
 
+def get_fdi_cache_entry(cache_key: str) -> dict[str, Any] | None:
+    return _fdi_benchmark_cache.get(cache_key)
+
+
+def set_fdi_cache_entry(cache_key: str, entry: dict[str, Any]) -> None:
+    _fdi_benchmark_cache[cache_key] = entry
+
+
 def _extract_all_years(fdi_result: dict[str, Any]) -> list[int]:
     years: set[int] = set()
     for s in fdi_result.get("series") or []:

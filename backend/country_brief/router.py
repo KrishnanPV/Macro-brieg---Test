@@ -13,7 +13,9 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from backend.models.schemas import CountryBriefGenerateRequest, CountryBriefRefineRequest
-from backend.country_brief.pipeline import run_pipeline, recompute_fdi_benchmark
+from backend.country_brief.pipeline import (
+    run_pipeline, recompute_fdi_benchmark, get_fdi_cache_entry, set_fdi_cache_entry,
+)
 from backend.country_brief.agents.brief_writer import stream_refine
 
 log = logging.getLogger(__name__)
@@ -75,6 +77,12 @@ async def store_test_report(request: Request):
     """Save the current report snapshot to disk (debug only)."""
     _require_debug()
     body = await request.json()
+    benchmark = body.get("fdiBenchmark") or {}
+    cache_key = benchmark.get("benchmark_cache_key")
+    if cache_key:
+        entry = get_fdi_cache_entry(cache_key)
+        if entry:
+            body["_fdi_cache_entry"] = entry
     _TEST_REPORT_PATH.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
     return {"ok": True}
 
@@ -85,4 +93,10 @@ def load_test_report():
     _require_debug()
     if not _TEST_REPORT_PATH.exists():
         raise HTTPException(status_code=404, detail="No stored test report found.")
-    return json.loads(_TEST_REPORT_PATH.read_text(encoding="utf-8"))
+    data = json.loads(_TEST_REPORT_PATH.read_text(encoding="utf-8"))
+    fdi_cache_entry = data.pop("_fdi_cache_entry", None)
+    benchmark = data.get("fdiBenchmark") or {}
+    cache_key = benchmark.get("benchmark_cache_key")
+    if cache_key and fdi_cache_entry:
+        set_fdi_cache_entry(cache_key, fdi_cache_entry)
+    return data

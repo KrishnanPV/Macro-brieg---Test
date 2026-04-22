@@ -183,6 +183,7 @@ const useCountryBriefStore = create(
             blocks: data.blocks,
             kpiDataCache: data.kpiDataCache || [],
             fdiBenchmark: data.fdiBenchmark || null,
+            fdiBenchmarkCacheKey: data.fdiBenchmark?.benchmark_cache_key || null,
             triageResults: data.triageResults || [],
             newsArticles: data.newsArticles || [],
             briefGenerated: true,
