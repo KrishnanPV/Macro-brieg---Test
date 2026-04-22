@@ -30,6 +30,10 @@ from backend.country_brief.prompts import build_brief_prompt
 
 log = logging.getLogger(__name__)
 
+# GCC economies — matches frontend region grouping (CountryBrief / Dashboard).
+_GCC_CODES = frozenset({"SAU", "ARE", "QAT", "KWT", "BHR", "OMN"})
+_OIL_NON_OIL_KPI = "2"
+
 
 def _ndjson(obj: dict[str, Any]) -> str:
     return json.dumps(obj, default=str) + "\n"
@@ -52,12 +56,10 @@ def run_pipeline(
     available_ids = [kid for kid in available_ids if kid in {s.id for s in SPECS if s.source == "oxford"}]
     if not available_ids:
         available_ids = all_oxford_ids
-    # In automatic mode, always include the 3 core GDP KPIs
-    GDP_CORE_IDS = ["3", "11", "2"]
-    if not manual_selection:
-        for kid in GDP_CORE_IDS:
-            if kid not in available_ids:
-                available_ids.append(kid)
+    # Automatic + GCC: always fetch oil/non-oil; other economies rely on triage-only selection.
+    if not manual_selection and req.country.upper() in _GCC_CODES:
+        if _OIL_NON_OIL_KPI not in available_ids:
+            available_ids.append(_OIL_NON_OIL_KPI)
     timerange = f"{req.start_year}-{req.end_year}"
 
     # ── Phase 1: Fetch KPI data ──────────────────────────────────────────
@@ -82,14 +84,12 @@ def run_pipeline(
     scores = triage_kpis(derived_facts)
     notable_ids = [s.kpi_id for s in scores if s.notable]
 
+    ids_with_data = {str(r.get("kpi_id")) for r in valid_results}
     if manual_selection:
-        ids_with_data = {str(r.get("kpi_id")) for r in valid_results}
         notable_ids = [kid for kid in available_ids if kid in ids_with_data]
-    else:
-        # Force core GDP KPIs as notable so they always get brief sections
-        for kid in GDP_CORE_IDS:
-            if kid not in notable_ids:
-                notable_ids.append(kid)
+    elif req.country.upper() in _GCC_CODES:
+        if _OIL_NON_OIL_KPI in ids_with_data and _OIL_NON_OIL_KPI not in notable_ids:
+            notable_ids.append(_OIL_NON_OIL_KPI)
 
     yield _ndjson({
         "type": "triage",

@@ -22,20 +22,28 @@ function getScaleMultiplier(unit) {
   return 1
 }
 
-function isoToQuarterLabel(d) {
-  const dt = new Date(d)
-  const q = Math.floor(dt.getMonth() / 3) + 1
-  return `Q${q} ${dt.getFullYear()}`
+function _forecastSuffix(year, lastActualYear) {
+  return lastActualYear != null && year > lastActualYear ? 'F' : ''
 }
 
-function isoToYearLabel(d) {
-  return new Date(d).getFullYear().toString()
-}
-
-function quarterlyAxisLabel(d) {
+function isoToQuarterLabel(d, lastActualYear) {
   const dt = new Date(d)
   const q = Math.floor(dt.getMonth() / 3) + 1
-  return q === 1 ? dt.getFullYear().toString() : ''
+  const year = dt.getFullYear()
+  return `Q${q} ${year}${_forecastSuffix(year, lastActualYear)}`
+}
+
+function isoToYearLabel(d, lastActualYear) {
+  const year = new Date(d).getFullYear()
+  return `${year}${_forecastSuffix(year, lastActualYear)}`
+}
+
+function quarterlyAxisLabel(d, lastActualYear) {
+  const dt = new Date(d)
+  const q = Math.floor(dt.getMonth() / 3) + 1
+  if (q !== 1) return ''
+  const year = dt.getFullYear()
+  return `${year}${_forecastSuffix(year, lastActualYear)}`
 }
 
 function computeAnnualTicks(rows, maxTicks = 15) {
@@ -144,8 +152,9 @@ export default function InlineChartBlock({ kpiId, kpiDataCache = [], compact = f
   if (!rows.length) return null
 
   const chartHeight = compact ? 180 : 220
-  const tooltipFmt = isQuarterly ? isoToQuarterLabel : isoToYearLabel
-  const axisFmt = isQuarterly ? quarterlyAxisLabel : isoToYearLabel
+  const lay = kpiResult?.last_actual_year ?? new Date().getFullYear() - 1
+  const tooltipFmt = isQuarterly ? (d) => isoToQuarterLabel(d, lay) : (d) => isoToYearLabel(d, lay)
+  const axisFmt = isQuarterly ? (d) => quarterlyAxisLabel(d, lay) : (d) => isoToYearLabel(d, lay)
   const ticks = isQuarterly ? rows.map(r => r.date) : computeAnnualTicks(rows)
   const fileBase = `kpi_${kpiId}_${slugify(kpiName)}`
 
@@ -203,7 +212,7 @@ export default function InlineChartBlock({ kpiId, kpiDataCache = [], compact = f
           {vizMode === 'bar' ? (
             <BarChart data={rows}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-              <XAxis dataKey="date" tickFormatter={axisFmt} ticks={ticks}
+              <XAxis dataKey="date" tickFormatter={axisFmt} ticks={ticks} interval={0}
                 tick={{ fontSize: 10, fill: '#94a3b8' }} height={24} axisLine={{ stroke: '#e2e8f0' }} />
               <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={formatAxisTick}
                 axisLine={false} tickLine={false} width={52} />
@@ -223,7 +232,7 @@ export default function InlineChartBlock({ kpiId, kpiDataCache = [], compact = f
                 ))}
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-              <XAxis dataKey="date" tickFormatter={axisFmt} ticks={ticks}
+              <XAxis dataKey="date" tickFormatter={axisFmt} ticks={ticks} interval={0}
                 tick={{ fontSize: 10, fill: '#94a3b8' }} height={24} axisLine={{ stroke: '#e2e8f0' }} />
               <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={formatAxisTick}
                 axisLine={false} tickLine={false} width={52} />

@@ -15,20 +15,28 @@ import InsightTabs from '../../components/ui/InsightTabs'
 import { SERIES_COLORS, CARD_ACCENT } from '../../lib/colors'
 import { formatAbbrevNumber, formatAxisTick } from '../../lib/formatNumbers'
 
-function isoToQuarterLabel(d) {
-  const dt = new Date(d)
-  const q = Math.floor(dt.getMonth() / 3) + 1
-  return `Q${q} ${dt.getFullYear()}`
+function _forecastSuffix(year, lastActualYear) {
+  return lastActualYear != null && year > lastActualYear ? 'F' : ''
 }
 
-function isoToYearLabel(d) {
-  return new Date(d).getFullYear().toString()
-}
-
-function quarterlyAxisLabel(d) {
+function isoToQuarterLabel(d, lastActualYear) {
   const dt = new Date(d)
   const q = Math.floor(dt.getMonth() / 3) + 1
-  return q === 1 ? dt.getFullYear().toString() : ''
+  const year = dt.getFullYear()
+  return `Q${q} ${year}${_forecastSuffix(year, lastActualYear)}`
+}
+
+function isoToYearLabel(d, lastActualYear) {
+  const year = new Date(d).getFullYear()
+  return `${year}${_forecastSuffix(year, lastActualYear)}`
+}
+
+function quarterlyAxisLabel(d, lastActualYear) {
+  const dt = new Date(d)
+  const q = Math.floor(dt.getMonth() / 3) + 1
+  if (q !== 1) return ''
+  const year = dt.getFullYear()
+  return `${year}${_forecastSuffix(year, lastActualYear)}`
 }
 
 function computeAnnualTicks(rows, maxTicks = 15) {
@@ -229,7 +237,7 @@ export default function KpiCard({
   result, countries, autoTriggerInsight = 0, insightCache = {}, onInsightCached, compact = false,
   onChartFrequencyChange, chartFrequencyLoading = false,
 }) {
-  const { kpi_id, kpi_name, series, errors, frequency } = result
+  const { kpi_id, kpi_name, series, errors, frequency, last_actual_year } = result
   const [vizMode, setVizMode] = useState('area')
 
   const isMultiCountry = countries.length > 1
@@ -430,8 +438,9 @@ export default function KpiCard({
   }, [allRows, zoomDomain])
 
   const isQuarterly = frequency === 'Q'
-  const tooltipFmt = isQuarterly ? isoToQuarterLabel : isoToYearLabel
-  const axisFmt = isQuarterly ? quarterlyAxisLabel : isoToYearLabel
+  const lay = last_actual_year ?? new Date().getFullYear() - 1
+  const tooltipFmt = isQuarterly ? (d) => isoToQuarterLabel(d, lay) : (d) => isoToYearLabel(d, lay)
+  const axisFmt = isQuarterly ? (d) => quarterlyAxisLabel(d, lay) : (d) => isoToYearLabel(d, lay)
   const ticks = isQuarterly ? rows.map(r => r.date) : computeAnnualTicks(rows)
   const exportFileBase = `kpi_${kpi_id}_${slugifyFilenamePart(kpi_name)}`
   const chartHeight = compact ? 220 : 320
@@ -520,7 +529,7 @@ export default function KpiCard({
             <ResponsiveContainer width="100%" height={chartHeight}>
               <BarChart data={rows} {...chartEvents}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="date" tickFormatter={axisFmt} ticks={ticks} tick={{ fontSize: 10, fill: '#94a3b8' }} height={30} axisLine={{ stroke: '#e2e8f0' }} allowDataOverflow={!!zoomDomain} />
+                <XAxis dataKey="date" tickFormatter={axisFmt} ticks={ticks} interval={0} tick={{ fontSize: 10, fill: '#94a3b8' }} height={30} axisLine={{ stroke: '#e2e8f0' }} allowDataOverflow={!!zoomDomain} />
                 <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={formatAxisTick} axisLine={false} tickLine={false} allowDataOverflow={!!zoomDomain} />
                 <Tooltip content={<CustomTooltip formatter={tooltipFmt} />} />
                 {visibleSeriesKeys.map(sk => <Bar key={sk.key} dataKey={sk.key} fill={sk.color} radius={[4, 4, 0, 0]} />)}
@@ -542,7 +551,7 @@ export default function KpiCard({
                   ))}
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="date" tickFormatter={axisFmt} ticks={ticks} tick={{ fontSize: 10, fill: '#94a3b8' }} height={30} axisLine={{ stroke: '#e2e8f0' }} allowDataOverflow={!!zoomDomain} />
+                <XAxis dataKey="date" tickFormatter={axisFmt} ticks={ticks} interval={0} tick={{ fontSize: 10, fill: '#94a3b8' }} height={30} axisLine={{ stroke: '#e2e8f0' }} allowDataOverflow={!!zoomDomain} />
                 <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={formatAxisTick} axisLine={false} tickLine={false} allowDataOverflow={!!zoomDomain} />
                 <Tooltip content={<CustomTooltip formatter={tooltipFmt} />} />
                 {visibleSeriesKeys.map(sk => (
@@ -560,7 +569,7 @@ export default function KpiCard({
             <ResponsiveContainer width="100%" height={chartHeight}>
               <LineChart data={rows} {...chartEvents}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="date" tickFormatter={axisFmt} ticks={ticks} tick={{ fontSize: 10, fill: '#94a3b8' }} height={30} axisLine={{ stroke: '#e2e8f0' }} allowDataOverflow={!!zoomDomain} />
+                <XAxis dataKey="date" tickFormatter={axisFmt} ticks={ticks} interval={0} tick={{ fontSize: 10, fill: '#94a3b8' }} height={30} axisLine={{ stroke: '#e2e8f0' }} allowDataOverflow={!!zoomDomain} />
                 <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={formatAxisTick} axisLine={false} tickLine={false} allowDataOverflow={!!zoomDomain} />
                 <Tooltip content={<CustomTooltip formatter={tooltipFmt} />} />
                 {visibleSeriesKeys.map(sk => <Line key={sk.key} type="monotone" dataKey={sk.key} stroke={sk.color} dot={false} strokeWidth={2} activeDot={{ r: 4, strokeWidth: 2, fill: '#fff' }} />)}

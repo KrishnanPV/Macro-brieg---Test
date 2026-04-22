@@ -79,6 +79,29 @@ def _split_narrative_and_charts(body: str) -> list[dict[str, Any]]:
     return blocks
 
 
+_CHART_ORDER: dict[str, int] = {"3": 0, "2": 1, "11": 2}
+
+
+def _reorder_section_charts(children: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Sort chart_ref blocks by the preferred GDP display order.
+
+    Non-GDP charts keep their original relative position after the
+    ordered GDP charts.  Narrative blocks are left in place.
+    """
+    charts = [c for c in children if c.get("type") == "chart_ref"]
+    if len(charts) <= 1:
+        return children
+    charts.sort(key=lambda c: _CHART_ORDER.get(c.get("kpi_id", ""), 99))
+    result: list[dict[str, Any]] = []
+    chart_iter = iter(charts)
+    for c in children:
+        if c.get("type") == "chart_ref":
+            result.append(next(chart_iter))
+        else:
+            result.append(c)
+    return result
+
+
 def _extract_outlook_fallback(raw_text: str) -> str | None:
     m = _TW_HW_RE.search(raw_text)
     if not m:
@@ -111,7 +134,7 @@ def parse_brief_blocks(raw_text: str) -> list[dict[str, Any]]:
     for m in _SECTION_RE.finditer(raw_text):
         title = m.group(1).strip()
         body = m.group(2).strip()
-        sub_blocks = _split_narrative_and_charts(body)
+        sub_blocks = _reorder_section_charts(_split_narrative_and_charts(body))
         blocks.append({"type": "section", "title": title, "children": sub_blocks})
 
     m = _OUTLOOK_RE.search(raw_text)

@@ -49,10 +49,12 @@ class KpiResult(BaseModel):
     series: list[IndicatorSeries]
     series_annual: list[IndicatorSeries] | None = None
     errors: list[str] = []
+    last_actual_year: int = 2025
 
 
 class FetchResponse(BaseModel):
     results: list[KpiResult]
+    last_actual_year: int = 2025
 
 
 class RefetchKpiRequest(BaseModel):

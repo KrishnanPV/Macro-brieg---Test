@@ -29,5 +29,8 @@ _DEFAULT_PERPLEXITY_URL = "https://api.perplexity.ai"
 PERPLEXITY_URL = (os.getenv("PERPLEXITY_URL") or "").strip() or _DEFAULT_PERPLEXITY_URL
 PERPLEXITY_MODEL = (os.getenv("PERPLEXITY_MODEL") or "sonar").strip() or "sonar"
 
+# --- Forecast cutoff ---
+LAST_ACTUAL_YEAR = int(os.getenv("LAST_ACTUAL_YEAR", "2025"))
+
 # --- Database ---
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./data/macrobrief.db")

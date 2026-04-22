@@ -7,7 +7,7 @@ from typing import Any
 import knoema
 import pandas as pd
 
-from backend.config import EAP_HOST, EAP_APP_ID, EAP_APP_SECRET, DATASET
+from backend.config import EAP_HOST, EAP_APP_ID, EAP_APP_SECRET, DATASET, LAST_ACTUAL_YEAR
 from backend.models.kpi_registry import SPECS_BY_ID, sorted_kpi_ids, resolve_unit_label
 from backend.models.schemas import SeriesPoint, IndicatorSeries, KpiResult, FetchResponse
 
@@ -161,12 +161,14 @@ def fetch_kpi_data(
         if not spec:
             results.append(KpiResult(kpi_id=kpi_id, kpi_name="Unknown", frequency="",
                                      native_frequency="", series=[],
-                                     errors=[f"KPI {kpi_id} not found."]))
+                                     errors=[f"KPI {kpi_id} not found."],
+                                     last_actual_year=LAST_ACTUAL_YEAR))
             continue
         if spec.source != "oxford":
             results.append(KpiResult(kpi_id=kpi_id, kpi_name=spec.name,
                                      frequency=spec.frequency, native_frequency=spec.frequency,
-                                     series=[], errors=["Not available via Oxford EAP (IMF source)."]))
+                                     series=[], errors=["Not available via Oxford EAP (IMF source)."],
+                                     last_actual_year=LAST_ACTUAL_YEAR))
             continue
 
         effective_freq = freq_overrides.get(kpi_id, spec.frequency)
@@ -192,6 +194,7 @@ def fetch_kpi_data(
                 native_frequency=spec.frequency, unit=kpi_unit,
                 series=q_series, series_annual=a_series,
                 errors=q_errors + a_errors,
+                last_actual_year=LAST_ACTUAL_YEAR,
             ))
         else:
             tr = timeranges.get(effective_freq, timeranges["A"])
@@ -204,9 +207,10 @@ def fetch_kpi_data(
                 kpi_id=kpi_id, kpi_name=spec.name, frequency=effective_freq,
                 native_frequency=spec.frequency, unit=kpi_unit,
                 series=all_series, errors=errors,
+                last_actual_year=LAST_ACTUAL_YEAR,
             ))
 
-    return FetchResponse(results=results)
+    return FetchResponse(results=results, last_actual_year=LAST_ACTUAL_YEAR)
 
 
 def fetch_single_kpi(
@@ -250,4 +254,5 @@ def fetch_single_kpi(
         kpi_id=kpi_id, kpi_name=spec.name, frequency=effective_freq,
         native_frequency=spec.frequency, unit=kpi_unit,
         series=all_series, errors=errors,
+        last_actual_year=LAST_ACTUAL_YEAR,
     )
