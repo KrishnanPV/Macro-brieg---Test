@@ -41,3 +41,4 @@ plan/
 .cursor/
 *.html
 *.txt
+backend/country_brief/_test_report.json
