@@ -259,6 +259,7 @@ function CagrXAxisTick({ x, y, payload, axisFmt, cagrResult }) {
   const isEndpoint = cagrResult && (year === cagrResult.startYear || year === cagrResult.endYear)
   return (
     <text x={x} y={y + 10} textAnchor="middle"
+      style={{ fontFamily: 'inherit' }}
       fontSize={isEndpoint ? 11 : 10}
       fontWeight={isEndpoint ? 700 : isHighlighted ? 600 : 400}
       fill={isEndpoint ? '#4f46e5' : isHighlighted ? '#6366f1' : '#94a3b8'}>
@@ -331,10 +332,14 @@ export default function InlineChartBlock({
 
   const chartRows = useMemo(() => {
     if (!oilByYear) return rows
+    const sortedOilYears = [...oilByYear.keys()].sort((a, b) => a - b)
+    const lastOilYear = sortedOilYears[sortedOilYears.length - 1]
+    const lastOilVal = oilByYear.get(lastOilYear)
     return rows.map(r => {
       const row = { ...r }
       const y = new Date(r.date).getFullYear()
-      row[OIL_OVERLAY_KEY] = oilByYear.get(y) ?? null
+      const exact = oilByYear.get(y)
+      row[OIL_OVERLAY_KEY] = exact != null ? exact : (y > lastOilYear ? lastOilVal : null)
       return row
     })
   }, [rows, oilByYear])
@@ -498,7 +503,8 @@ export default function InlineChartBlock({
             </div>
           )}
           <ResponsiveContainer width="100%" height={chartHeight}>
-            <ComposedChart data={chartRows}>
+            <ComposedChart key={`${activeVizMode}-${freq}`} data={chartRows}
+              margin={{ top: 5, right: hasOilOverlay ? 20 : 10, bottom: 0, left: 0 }}>
               {activeVizMode === 'line' && (
                 <defs>
                   {seriesKeys.map(sk => (
@@ -511,18 +517,19 @@ export default function InlineChartBlock({
               )}
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
               <XAxis dataKey="date" ticks={ticks} interval={0} height={24} axisLine={{ stroke: '#e2e8f0' }}
+                padding={{ left: 4, right: 4 }}
                 {...(cagrResult
                   ? { tick: <CagrXAxisTick axisFmt={axisFmt} cagrResult={cagrResult} /> }
-                  : { tickFormatter: axisFmt, tick: { fontSize: 10, fill: '#94a3b8' } }
+                  : { tickFormatter: axisFmt, tick: { fontSize: 10, fill: '#94a3b8', fontFamily: 'inherit' } }
                 )} />
-              <YAxis yAxisId="left" tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={formatAxisTick}
+              <YAxis yAxisId="left" tick={{ fontSize: 10, fill: '#94a3b8', fontFamily: 'inherit' }} tickFormatter={formatAxisTick}
                 axisLine={false} tickLine={false} width={52} />
               {hasOilOverlay && (
                 <YAxis yAxisId="right" orientation="right"
-                  tick={{ fontSize: 9, fill: OIL_OVERLAY_COLOR }} tickFormatter={formatAxisTick}
+                  tick={{ fontSize: 10, fill: OIL_OVERLAY_COLOR, fontFamily: 'inherit' }} tickFormatter={formatAxisTick}
                   axisLine={false} tickLine={false} width={48}
                   label={{ value: oilOverlay.unit || '', angle: 90, position: 'insideRight',
-                    style: { fontSize: 9, fill: OIL_OVERLAY_COLOR }, dx: 12 }} />
+                    style: { fontSize: 10, fill: OIL_OVERLAY_COLOR, fontFamily: 'inherit' }, dx: 4 }} />
               )}
               <Tooltip content={<CustomTooltip dateFormatter={tooltipFmt} />} />
               {activeVizMode === 'bar'

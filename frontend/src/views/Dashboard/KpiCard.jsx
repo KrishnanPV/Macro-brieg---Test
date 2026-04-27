@@ -527,10 +527,11 @@ export default function KpiCard({
         ) : vizMode === 'bar' ? (
           <>
             <ResponsiveContainer width="100%" height={chartHeight}>
-              <BarChart data={rows} {...chartEvents}>
+              <BarChart data={rows} {...chartEvents}
+                margin={{ top: 5, right: 10, bottom: 0, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="date" tickFormatter={axisFmt} ticks={ticks} interval={0} tick={{ fontSize: 10, fill: '#94a3b8' }} height={30} axisLine={{ stroke: '#e2e8f0' }} allowDataOverflow={!!zoomDomain} />
-                <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={formatAxisTick} axisLine={false} tickLine={false} allowDataOverflow={!!zoomDomain} />
+                <XAxis dataKey="date" tickFormatter={axisFmt} ticks={ticks} interval={0} tick={{ fontSize: 10, fill: '#94a3b8', fontFamily: 'inherit' }} height={30} axisLine={{ stroke: '#e2e8f0' }} padding={{ left: 4, right: 4 }} allowDataOverflow={!!zoomDomain} />
+                <YAxis tick={{ fontSize: 10, fill: '#94a3b8', fontFamily: 'inherit' }} tickFormatter={formatAxisTick} axisLine={false} tickLine={false} allowDataOverflow={!!zoomDomain} />
                 <Tooltip content={<CustomTooltip formatter={tooltipFmt} />} />
                 {visibleSeriesKeys.map(sk => <Bar key={sk.key} dataKey={sk.key} fill={sk.color} radius={[4, 4, 0, 0]} />)}
                 {zoomRefArea}
@@ -541,7 +542,8 @@ export default function KpiCard({
         ) : vizMode === 'area' ? (
           <>
             <ResponsiveContainer width="100%" height={chartHeight}>
-              <AreaChart data={rows} {...chartEvents}>
+              <AreaChart data={rows} {...chartEvents}
+                margin={{ top: 5, right: 10, bottom: 0, left: 0 }}>
                 <defs>
                   {visibleSeriesKeys.map(sk => (
                     <linearGradient key={sk.key} id={`grad-${kpi_id}-${sk.key.replace(/\W/g, '_')}`} x1="0" y1="0" x2="0" y2="1">
@@ -551,8 +553,8 @@ export default function KpiCard({
                   ))}
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="date" tickFormatter={axisFmt} ticks={ticks} interval={0} tick={{ fontSize: 10, fill: '#94a3b8' }} height={30} axisLine={{ stroke: '#e2e8f0' }} allowDataOverflow={!!zoomDomain} />
-                <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={formatAxisTick} axisLine={false} tickLine={false} allowDataOverflow={!!zoomDomain} />
+                <XAxis dataKey="date" tickFormatter={axisFmt} ticks={ticks} interval={0} tick={{ fontSize: 10, fill: '#94a3b8', fontFamily: 'inherit' }} height={30} axisLine={{ stroke: '#e2e8f0' }} padding={{ left: 4, right: 4 }} allowDataOverflow={!!zoomDomain} />
+                <YAxis tick={{ fontSize: 10, fill: '#94a3b8', fontFamily: 'inherit' }} tickFormatter={formatAxisTick} axisLine={false} tickLine={false} allowDataOverflow={!!zoomDomain} />
                 <Tooltip content={<CustomTooltip formatter={tooltipFmt} />} />
                 {visibleSeriesKeys.map(sk => (
                   <Area key={sk.key} type="monotone" dataKey={sk.key} stroke={sk.color}
@@ -567,10 +569,11 @@ export default function KpiCard({
         ) : (
           <>
             <ResponsiveContainer width="100%" height={chartHeight}>
-              <LineChart data={rows} {...chartEvents}>
+              <LineChart data={rows} {...chartEvents}
+                margin={{ top: 5, right: 10, bottom: 0, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="date" tickFormatter={axisFmt} ticks={ticks} interval={0} tick={{ fontSize: 10, fill: '#94a3b8' }} height={30} axisLine={{ stroke: '#e2e8f0' }} allowDataOverflow={!!zoomDomain} />
-                <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={formatAxisTick} axisLine={false} tickLine={false} allowDataOverflow={!!zoomDomain} />
+                <XAxis dataKey="date" tickFormatter={axisFmt} ticks={ticks} interval={0} tick={{ fontSize: 10, fill: '#94a3b8', fontFamily: 'inherit' }} height={30} axisLine={{ stroke: '#e2e8f0' }} padding={{ left: 4, right: 4 }} allowDataOverflow={!!zoomDomain} />
+                <YAxis tick={{ fontSize: 10, fill: '#94a3b8', fontFamily: 'inherit' }} tickFormatter={formatAxisTick} axisLine={false} tickLine={false} allowDataOverflow={!!zoomDomain} />
                 <Tooltip content={<CustomTooltip formatter={tooltipFmt} />} />
                 {visibleSeriesKeys.map(sk => <Line key={sk.key} type="monotone" dataKey={sk.key} stroke={sk.color} dot={false} strokeWidth={2} activeDot={{ r: 4, strokeWidth: 2, fill: '#fff' }} />)}
                 {zoomRefArea}
