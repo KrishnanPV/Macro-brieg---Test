@@ -194,8 +194,8 @@ export default function FdiBenchmarkChart({
         <div className="rounded-lg border border-slate-200 overflow-hidden">
           <div className="grid grid-cols-[minmax(8rem,1.5fr)_minmax(5rem,1fr)_minmax(5rem,1fr)_auto] items-center gap-2 bg-slate-50 px-2.5 py-1.5">
             <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">Country</span>
-            <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider text-right">{startYear}</span>
-            <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider text-right">{endYear}</span>
+            <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">{startYear}</span>
+            <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">{endYear}</span>
             <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider text-center min-w-[2.9rem]">CAGR</span>
           </div>
           <div className="divide-y divide-slate-100">

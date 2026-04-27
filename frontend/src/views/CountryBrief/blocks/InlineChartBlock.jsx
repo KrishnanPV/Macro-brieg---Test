@@ -317,6 +317,36 @@ export default function InlineChartBlock({
 
   const isPercentageUnit = unitLabel.trim().startsWith('%')
 
+  const oilByYear = useMemo(() => {
+    if (!hasOilOverlay) return null
+    const map = new Map()
+    for (const p of oilOverlay.points) {
+      if (p.value != null) {
+        const y = new Date(p.date).getFullYear()
+        if (!isNaN(y)) map.set(y, p.value)
+      }
+    }
+    return map.size ? map : null
+  }, [oilOverlay, hasOilOverlay])
+
+  const chartRows = useMemo(() => {
+    if (!oilByYear) return rows
+    return rows.map(r => {
+      const row = { ...r }
+      const y = new Date(r.date).getFullYear()
+      row[OIL_OVERLAY_KEY] = oilByYear.get(y) ?? null
+      return row
+    })
+  }, [rows, oilByYear])
+
+  const cagrHighlight = useMemo(() => {
+    if (!cagrResult) return null
+    const startRows = rows.filter(r => new Date(r.date).getFullYear() === cagrResult.startYear)
+    const endRows = rows.filter(r => new Date(r.date).getFullYear() === cagrResult.endYear)
+    if (!startRows.length || !endRows.length) return null
+    return { x1: startRows[0].date, x2: endRows[endRows.length - 1].date }
+  }, [rows, cagrResult])
+
   if (showFdiBenchmark) {
     return (
       <FdiBenchmarkChart
@@ -358,32 +388,6 @@ export default function InlineChartBlock({
     setCagrResult(result)
     setCagrPopupOpen(false)
   }
-
-  const oilByDate = useMemo(() => {
-    if (!hasOilOverlay) return null
-    const map = new Map()
-    for (const p of oilOverlay.points) {
-      if (p.value != null) map.set(p.date, p.value)
-    }
-    return map
-  }, [oilOverlay, hasOilOverlay])
-
-  const chartRows = useMemo(() => {
-    if (!oilByDate) return rows
-    return rows.map(r => {
-      const row = { ...r }
-      row[OIL_OVERLAY_KEY] = oilByDate.get(r.date) ?? null
-      return row
-    })
-  }, [rows, oilByDate])
-
-  const cagrHighlight = useMemo(() => {
-    if (!cagrResult) return null
-    const startRows = rows.filter(r => new Date(r.date).getFullYear() === cagrResult.startYear)
-    const endRows = rows.filter(r => new Date(r.date).getFullYear() === cagrResult.endYear)
-    if (!startRows.length || !endRows.length) return null
-    return { x1: startRows[0].date, x2: endRows[endRows.length - 1].date }
-  }, [rows, cagrResult])
 
   const cagrColor = cagrResult ? (cagrResult.cagr >= 0 ? '#16a34a' : '#dc2626') : '#16a34a'
   const cagrLabel = cagrResult
