@@ -20,7 +20,7 @@ from backend.config import OPENAI_MODEL
 from backend.models.kpi_registry import SPECS
 from backend.models.schemas import CountryBriefGenerateRequest
 from backend.services.derived_facts import compute_derived_facts
-from backend.services.knoema_client import fetch_kpi_data
+from backend.services.knoema_client import fetch_kpi_data, fetch_oil_price_data
 from backend.services.kpi_triage import triage_kpis
 from backend.services.metrics_ribbon import compute_ribbon_metrics
 from backend.services.signals import extract_signals
@@ -166,6 +166,26 @@ def run_pipeline(
         timerange_a=timerange,
         dual_fetch=True,
     )
+    # Oil price overlay for KPI 2 (Oil vs Non-Oil GDP)
+    if _OIL_NON_OIL_KPI in available_ids:
+        yield _ndjson({"type": "status", "content": "Fetching Brent oil price overlay..."})
+        try:
+            oil_overlay = fetch_oil_price_data(
+                country=req.country,
+                timerange=timerange,
+                frequency="A",
+            )
+            if oil_overlay:
+                for r in fetch_resp.results:
+                    if r.kpi_id == _OIL_NON_OIL_KPI:
+                        r.oil_price_overlay = oil_overlay
+                        break
+                log.info("Oil price overlay attached for %s", req.country)
+            else:
+                log.info("Oil price overlay unavailable for %s — skipping.", req.country)
+        except Exception as exc:
+            log.warning("Oil price overlay failed for %s: %s", req.country, exc)
+
     results_raw = [r.model_dump() for r in fetch_resp.results]
     yield _ndjson({"type": "kpi_data", "content": results_raw})
 

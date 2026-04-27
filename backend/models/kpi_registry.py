@@ -76,6 +76,16 @@ def sorted_kpi_ids(ids: list[str]) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Auxiliary indicators (not KPIs — used for overlays / enrichment)
+# ---------------------------------------------------------------------------
+
+# Oil price — available per-country in LCU (already converted by Oxford).
+# Fetched using the target country code, not a global/world location.
+OIL_PRICE_INDICATOR = "Oil price"
+OIL_PRICE_FALLBACKS: list[str] = []
+
+
+# ---------------------------------------------------------------------------
 # Per-KPI Insight Lens Registry
 # ---------------------------------------------------------------------------
 

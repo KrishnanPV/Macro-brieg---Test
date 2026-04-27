@@ -8,7 +8,11 @@ import knoema
 import pandas as pd
 
 from backend.config import EAP_HOST, EAP_APP_ID, EAP_APP_SECRET, DATASET, LAST_ACTUAL_YEAR
-from backend.models.kpi_registry import SPECS_BY_ID, sorted_kpi_ids, resolve_unit_label
+from backend.models.kpi_registry import (
+    SPECS_BY_ID, sorted_kpi_ids, resolve_unit_label,
+    OIL_PRICE_INDICATOR, OIL_PRICE_FALLBACKS,
+    ISO3_TO_CURRENCY,
+)
 from backend.models.schemas import SeriesPoint, IndicatorSeries, KpiResult, FetchResponse
 
 log = logging.getLogger(__name__)
@@ -256,3 +260,37 @@ def fetch_single_kpi(
         series=all_series, errors=errors,
         last_actual_year=LAST_ACTUAL_YEAR,
     )
+
+
+def fetch_oil_price_data(
+    country: str,
+    timerange: str = "2015-2026",
+    frequency: str = "A",
+) -> IndicatorSeries | None:
+    """Fetch oil price for *country* from Oxford Economics.
+
+    Oxford stores "Oil price" per-country already in local currency,
+    so no FX conversion is needed.
+    """
+    _configure_api()
+    clip_start, clip_end = _parse_timerange(timerange)
+    ccy = ISO3_TO_CURRENCY.get(country.upper(), "LCU")
+
+    indicators = [OIL_PRICE_INDICATOR] + OIL_PRICE_FALLBACKS
+    for ind in indicators:
+        series, err = _fetch_indicator(
+            country, ind, frequency, timerange, clip_start, clip_end,
+        )
+        if series:
+            log.info("Oil overlay: found '%s' for %s (%d points)", ind, country, len(series.points))
+            return IndicatorSeries(
+                country=country,
+                indicator=f"Oil price ({ccy})",
+                points=series.points,
+                unit=series.unit or ccy,
+            )
+        if err:
+            log.debug("Oil overlay probe: %s", err)
+
+    log.warning("Oil overlay: could not fetch oil price for %s.", country)
+    return None

@@ -48,6 +48,7 @@ class KpiResult(BaseModel):
     unit: str = ""
     series: list[IndicatorSeries]
     series_annual: list[IndicatorSeries] | None = None
+    oil_price_overlay: IndicatorSeries | None = None
     errors: list[str] = []
     last_actual_year: int = 2025
 
