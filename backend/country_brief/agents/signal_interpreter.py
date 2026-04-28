@@ -1,7 +1,7 @@
 """Agent 1 — Signal Interpreter.
 
-Takes raw math-detected signals and produces thematic groupings,
-noise flags, and cross-KPI connections via a single GPT call.
+Takes raw math-detected signals and produces thematic groupings with
+causal chains, noise flags, and cross-KPI connections via a single GPT call.
 """
 from __future__ import annotations
 
@@ -12,38 +12,83 @@ from typing import Any
 from openai import OpenAI
 
 from backend.config import OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL
-from backend.models.kpi_registry import ISO3_TO_NAME
+from backend.models.kpi_registry import ISO3_TO_NAME, INSIGHT_LENSES
 from backend.services.cost_tracker import record_usage
 
 log = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """\
-You are a senior macroeconomic analyst. You will receive raw statistical signals \
-detected from KPI time-series data for a specific country.
+You are a senior macroeconomic analyst interpreting statistical signals from KPI \
+time-series data for a specific country.
 
-Your task: interpret and enrich each signal with analytical context. For each signal:
-1. Explain what this movement likely means economically
-2. Identify the most probable drivers (policies, global events, structural factors)
-3. Flag any signals that are likely noise vs genuinely notable
-4. Note cross-KPI relationships (e.g. GDP growth + falling unemployment = expansion)
+Your task is NOT to describe the data — the charts already do that. Your task is to \
+explain the MECHANISMS behind each movement: what triggered it, how the trigger \
+transmitted through the economy, and what KPI impact resulted.
 
-Group related signals into 2-4 thematic narratives (e.g. "Growth & Diversification", \
-"Price Stability", "Labor Market Dynamics").
+For each signal:
+1. Identify the specific trigger (a named policy, decision, event, or structural force — \
+not a vague category like "government reforms" or "global uncertainties").
+2. Articulate the transmission mechanism: HOW does this trigger produce this KPI movement? \
+Name the channel (e.g. "OPEC+ cuts reduced extraction volume", "Fed rate hike passed \
+through SAR peg to domestic credit conditions").
+3. Flag signals that are likely noise vs genuinely notable.
+4. Note cross-KPI relationships where one mechanism explains multiple signal movements.
+
+Group related signals into 2-4 thematic narratives. Each theme needs a governing \
+thesis (one sentence) and at least one causal chain.
+
+QUALITY STANDARD — each causal chain must pass this test:
+"Could someone write this chain by only looking at the chart?"
+If yes, it is too shallow. Name the specific trigger and explain the mechanism.
 
 Respond with JSON:
 {
   "themes": [
     {
       "title": "theme name",
-      "narrative": "2-3 sentences synthesizing the signals in this theme",
-      "signal_ids": ["sig_1", "sig_2"],
+      "thesis": "One-sentence governing thought for this theme",
+      "causal_chains": [
+        {
+          "trigger": "Specific named event, policy, or structural force with date/period",
+          "mechanism": "How the trigger transmits to KPI impact — name the economic channel",
+          "kpi_impact": "The resulting data movement with specific figures from the signals",
+          "signal_ids": ["sig_1", "sig_2"]
+        }
+      ],
       "key_drivers": ["driver 1", "driver 2"]
     }
   ],
   "noise_signals": ["sig_id_1"],
   "cross_kpi_connections": [
-    {"description": "how KPIs relate", "kpi_ids": ["3", "5"]}
+    {"description": "how KPIs relate via shared mechanism", "kpi_ids": ["3", "5"]}
   ]
+}
+
+EXAMPLE — well-formed theme for an oil-exporting economy:
+{
+  "title": "Oil GDP Drag vs Non-Oil Acceleration",
+  "thesis": "OPEC+ production discipline is dragging headline growth while diversification \
+capex structurally lifts non-oil sectors, creating a two-speed economy.",
+  "causal_chains": [
+    {
+      "trigger": "OPEC+ voluntary production cut of ~1M bpd extended through 2024",
+      "mechanism": "Reduced crude extraction volume directly contracted oil GDP (real/volume \
+series) — this is a supply constraint, not a price effect",
+      "kpi_impact": "Real GDP growth slowed to 0.8% in 2023 despite non-oil GDP accelerating \
+above 4%",
+      "signal_ids": ["sig_3", "sig_7"]
+    },
+    {
+      "trigger": "Vision 2030 giga-project capex entering execution phase (~$100B committed \
+across NEOM, The Line, Red Sea Global)",
+      "mechanism": "Construction and services sectors absorbed project spending, lifting \
+non-oil GDP independently of hydrocarbon cycles",
+      "kpi_impact": "Non-oil GDP sustained 4%+ growth providing structural floor beneath \
+headline GDP",
+      "signal_ids": ["sig_7"]
+    }
+  ],
+  "key_drivers": ["OPEC+ production policy", "Vision 2030 giga-project execution"]
 }
 
 Return ONLY the JSON object."""
@@ -77,26 +122,65 @@ def _strip_code_fence(text: str) -> str:
 _EMPTY: dict[str, Any] = {"themes": [], "noise_signals": [], "cross_kpi_connections": []}
 
 
+def _build_lens_context(notable_kpi_ids: list[str]) -> str:
+    """Build per-KPI domain context from insight lenses for the interpreter."""
+    blocks: list[str] = []
+    for kpi_id in notable_kpi_ids:
+        lens = INSIGHT_LENSES.get(kpi_id)
+        if not lens:
+            continue
+        lines = [f"KPI {kpi_id} — {lens.headline}:"]
+        if lens.context_hooks:
+            lines.append("  Relevant context to consider:")
+            for hook in lens.context_hooks:
+                lines.append(f"    - {hook}")
+        if lens.notability_cues:
+            lines.append("  What counts as notable:")
+            for cue in lens.notability_cues:
+                lines.append(f"    - {cue}")
+        if lens.forbidden_claims:
+            lines.append("  Analytical pitfalls to avoid:")
+            for fc in lens.forbidden_claims:
+                lines.append(f"    - {fc}")
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
+
+
 def interpret_signals(
     signals_data: list[dict[str, Any]],
     country: str,
     start_year: int,
     end_year: int,
+    *,
+    notable_kpi_ids: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Single GPT call: interpret raw math signals into themes."""
+    """Single GPT call: interpret raw math signals into themes with causal chains."""
     if not signals_data:
         return dict(_EMPTY)
 
     country_name = ISO3_TO_NAME.get(country, country)
     signals_json = json.dumps(signals_data, indent=2, default=str)
 
+    lens_block = ""
+    if notable_kpi_ids:
+        lens_text = _build_lens_context(notable_kpi_ids)
+        if lens_text:
+            lens_block = (
+                "\n\nDOMAIN CONTEXT — use these per-KPI analytical lenses to inform "
+                "your interpretation. They contain the specific policies, programs, and "
+                "mechanisms most likely to explain movements in each KPI:\n\n"
+                f"{lens_text}\n"
+            )
+
     user_prompt = (
         f"Country: {country_name} ({country})\n"
         f"Time range: {start_year}–{end_year}\n\n"
         f"RAW SIGNALS ({len(signals_data)} detected):\n"
-        f"```json\n{signals_json}\n```\n\n"
-        "Interpret these signals. Group into themes, identify drivers, "
-        "flag noise, and note cross-KPI connections. Return JSON only."
+        f"```json\n{signals_json}\n```"
+        f"{lens_block}\n\n"
+        "Interpret these signals. For each theme, provide a governing thesis and "
+        "at least one causal chain (trigger -> mechanism -> KPI impact). "
+        "Flag noise and note cross-KPI connections. Return JSON only."
     )
 
     client = _get_client()

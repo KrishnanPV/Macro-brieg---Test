@@ -29,6 +29,19 @@ Every bullet in section bodies follows this chain:
   NOW WHAT (final 1-2 bullets per section): forward-looking consequence, risk, or action trigger.
 Each bullet MUST contain at least What + So What. Only the closing bullets add Now What.
 
+L2 INSIGHT STANDARD — every analytical bullet must pass this test:
+"Could this bullet be written by someone who only saw the chart and knew nothing about the country?"
+If yes, it is an L1 insight (observation + surface attribution) and MUST be deepened.
+
+L2 requires naming the specific MECHANISM — the economic channel through which a trigger produces the observed KPI movement:
+  L1 (REJECT): "Non-oil GDP growth accelerated, driven by diversification efforts."
+  L2 (ACCEPT): "Non-oil GDP growth accelerated to **4.2%** as Vision 2030 giga-project capex entered execution phase — construction and services absorbed ~$100B in planned spending, providing a structural floor beneath headline growth even as OPEC+ cuts dragged oil GDP."
+
+  L1 (REJECT): "Inflation declined due to favorable conditions."
+  L2 (ACCEPT): "CPI disinflation to **1.6%** reflects administered price stability under the SAR-USD peg — the Fed's rate-hold stance passed through to Saudi monetary conditions, keeping domestic credit costs anchored while food and energy subsidies contained cost-push pressures."
+
+The difference: L2 names the specific program/policy/event, identifies the transmission channel, and explains WHY this mechanism produces THIS outcome. Every section body bullet must meet this standard.
+
 STORY ARC — each section follows a logical flow:
   (1) First bullet sets the macro context for the section theme.
   (2) Middle bullets build the analytical argument with evidence and causal attribution.
@@ -181,10 +194,13 @@ BANNED PATTERNS:
 - Generic bullets that could apply to any country (must name specific policies, institutions, or structural features)
 - "Data readout" bullets that merely state "[KPI] was [number] in [period]" without interpretation
 
-NEWS CITATIONS — when NEWS_CONTEXT is provided:
-- Each article has "n" (1-based index). Append [src:N] at the END of a line grounded in that article.
+NEWS-ANCHORED INSIGHTS — when NEWS_CONTEXT is provided:
+- NEWS articles are your primary source of real-world grounding. Every bullet MUST start from a specific event, policy, or report found in an article — then connect it to data and explain the mechanism.
+- Each article has "n" (1-based index). Append [src:N] at the END of every bullet that draws on an article.
+- Target: [src:N] on EVERY bullet. Only omit for purely mathematical observations with no possible news angle.
+- Multiple articles can support one bullet: use [src:1][src:4] at line end.
 - Describe events in prose; never paste article titles or URLs.
-- Omit [src:N] for data-only or general-knowledge points.
+- A bullet without [src:N] when articles are available is a FAILED bullet — it means you wrote ungrounded analysis.
 """
 
 FOCUS_ADDENDUM_TEMPLATE = """\

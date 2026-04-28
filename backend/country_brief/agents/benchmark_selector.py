@@ -1,7 +1,12 @@
-"""Agent: choose FDI benchmark peers (2 global + 2 regional)."""
+"""Agent: choose FDI benchmark peers (2 global + 2 regional).
+
+By default uses a deterministic selection (no LLM call) to save cost.
+Set BENCHMARK_USE_LLM=1 in .env to re-enable the GPT-based selection.
+"""
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from openai import OpenAI
@@ -16,6 +21,8 @@ from backend.models.kpi_registry import ISO3_TO_NAME
 from backend.services.cost_tracker import record_usage
 
 log = logging.getLogger(__name__)
+
+_USE_LLM = os.getenv("BENCHMARK_USE_LLM", "").strip() == "1"
 
 GLOBAL_CANDIDATE_ORDER = [
     "TUR", "MEX", "BRA", "IDN", "ZAF", "EGY", "GBR", "FRA", "DEU", "JPN", "IND", "CHN", "USA",
@@ -108,7 +115,10 @@ def select_benchmark_countries(
     start_year: int,
     end_year: int,
 ) -> dict[str, Any]:
-    """Pick 2 global + 2 regional benchmark peers via one LLM call.
+    """Pick 2 global + 2 regional benchmark peers.
+
+    Uses deterministic pool ordering by default (no LLM call). Set
+    BENCHMARK_USE_LLM=1 in .env to re-enable GPT-based peer selection.
 
     Returns dict with keys:
       - global: [ISO3, ISO3]
@@ -120,7 +130,9 @@ def select_benchmark_countries(
     global_pool = fallback["global_pool"]
     regional_pool = fallback["regional_pool"]
 
-    if not global_pool or not regional_pool:
+    if not global_pool or not regional_pool or not _USE_LLM:
+        if not _USE_LLM:
+            log.info("Benchmark selector using deterministic pools for %s (LLM disabled)", target)
         return fallback
 
     target_region = _region_for_country(target)

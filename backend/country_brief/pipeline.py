@@ -23,7 +23,7 @@ from backend.services.derived_facts import compute_derived_facts
 from backend.services.knoema_client import fetch_kpi_data, fetch_oil_price_data
 from backend.services.kpi_triage import triage_kpis
 from backend.services.metrics_ribbon import compute_ribbon_metrics
-from backend.services.signals import extract_signals
+from backend.services.signals import extract_signals, rank_signals
 
 from backend.country_brief.agents.signal_interpreter import interpret_signals
 from backend.country_brief.agents.news_researcher import research_signals
@@ -265,18 +265,26 @@ def run_pipeline(
     })
 
     all_signals = extract_signals(valid_results)
+
+    # Full KPI context for news breadth (before pre-filtering narrows KPI diversity)
+    all_kpi_signals: dict[str, list[str]] = {}
+    for s in all_signals:
+        all_kpi_signals.setdefault(s.kpi_name, []).append(s.description)
+
+    top_signals = rank_signals(all_signals, scores)
     signals_data = [
         {"signal_id": s.signal_id, "kpi_id": s.kpi_id, "kpi_name": s.kpi_name,
          "country": s.country, "signal_type": s.signal_type,
          "from_date": s.from_date, "to_date": s.to_date,
          "from_value": s.from_value, "to_value": s.to_value,
          "magnitude_pct": s.magnitude_pct, "description": s.description}
-        for s in all_signals
+        for s in top_signals
     ]
 
     yield _ndjson({"type": "status", "content": "Interpreting signals..."})
     signal_interpretation = interpret_signals(
         signals_data, req.country, req.start_year, req.end_year,
+        notable_kpi_ids=notable_ids,
     )
 
     # ── Phase 3: Agent 2 — News Correlation (deep search only) ───────────
@@ -288,6 +296,8 @@ def run_pipeline(
         try:
             articles_flat, prompt_bundle = research_signals(
                 signals_data, req.country, req.start_year, req.end_year,
+                signal_interpretation=signal_interpretation,
+                all_kpi_signals=all_kpi_signals,
             )
             log.info("Perplexity returned %d articles", len(articles_flat))
         except Exception as exc:
@@ -319,15 +329,43 @@ def run_pipeline(
     injection = (
         "SIGNAL INTERPRETATION (from analysis agent):\n"
         f"```json\n{interpretation_json}\n```\n\n"
-        "Use these thematic groupings, identified drivers, and cross-KPI connections "
-        "to structure your narrative. Ignore signals flagged as noise."
+        "HOW TO USE THIS INTERPRETATION:\n"
+        "Each theme contains a governing thesis and causal_chains:\n"
+        "- 'trigger' = the event/policy/force\n"
+        "- 'mechanism' = the transmission channel\n"
+        "- 'kpi_impact' = the data confirmation\n"
+        "- Transform each causal_chain into at least one bullet.\n\n"
+        "THEME-TO-SECTION MAPPING:\n"
+        "- GDP, growth, output, diversification -> [SECTION:Economic Performance & Growth]\n"
+        "- FDI, debt, capital flows, investment -> [SECTION:Investment & External Position]\n"
+        "- Inflation, employment, consumption -> [SECTION:Prices, Employment & Domestic Demand]\n"
+        "- Population, labor structure -> [SECTION:Demographics & Structural Factors]\n"
+        "- Cross-cutting themes -> [EXEC_SUMMARY] and [OUTLOOK]\n\n"
+        "Ignore noise_signals. Use cross_kpi_connections to synthesize."
     )
 
     if deep_analysis and articles_flat:
         injection += (
-            "\n\nNEWS CORRELATION: Perplexity research found articles that explain "
-            "the data movements. Use [src:N] markers at the END of sentences grounded "
-            "in specific articles (where N is the article's \"n\" value)."
+            "\n\nNEWS-ANCHORED INSIGHT RULE (MANDATORY):\n"
+            "The NEWS_CONTEXT articles are your PRIMARY source of real-world grounding. "
+            "Every bullet in every section MUST be anchored in a specific news article.\n\n"
+            "HOW TO BUILD A NEWS-ANCHORED BULLET:\n"
+            "1. Start from a NEWS article's fact (a policy, event, decision, report)\n"
+            "2. Connect it to the DATA (the KPI movement it explains)\n"
+            "3. Explain the MECHANISM (how the event transmits to the data)\n"
+            "4. Append [src:N] at the end (where N is the article's \"n\" value)\n\n"
+            "EXAMPLE of a good news-anchored bullet:\n"
+            "- OPEC+ phased out 1 mbpd of voluntary production cuts between October 2024 "
+            "and September 2025, enabling oil GDP to recover and lifting headline growth "
+            "to **4.5%** — reversing the 2023 contraction that followed the initial "
+            "cuts [src:10]\n\n"
+            "CITATION DENSITY: Aim for [src:N] on EVERY bullet. Only omit for pure "
+            "mathematical observations (e.g. CAGR calculations from raw data). "
+            "Multiple sources per bullet are encouraged: [src:1][src:4].\n\n"
+            "ANTI-PATTERN — do NOT write bullets like this:\n"
+            "- 'Growth accelerated driven by diversification efforts and structural reforms.'\n"
+            "This is vague text with no news anchor. Instead, NAME the specific reform, "
+            "cite the article that reported it, and explain the transmission channel."
         )
 
     messages.append({"role": "user", "content": injection})
