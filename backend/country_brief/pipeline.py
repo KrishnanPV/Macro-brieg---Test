@@ -251,6 +251,12 @@ def run_pipeline(
     ids_with_data = {str(r.get("kpi_id")) for r in valid_results}
     if manual_selection:
         notable_ids = [kid for kid in available_ids if kid in ids_with_data]
+        manual_notable_set = set(notable_ids)
+        for s in scores:
+            selected = s.kpi_id in manual_notable_set
+            if selected and not s.notable:
+                s.reasons.append("selected manually")
+            s.notable = selected
     elif req.country.upper() in _GCC_CODES:
         if _OIL_NON_OIL_KPI in ids_with_data and _OIL_NON_OIL_KPI not in notable_ids:
             notable_ids.append(_OIL_NON_OIL_KPI)
