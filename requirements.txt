@@ -1,10 +1,14 @@
+# Python 3.10+ — install from repo root:  pip install -r requirements.txt
+# (Use a venv first; see README "Setup from scratch".)
+
 aiosqlite
 fastapi
+greenlet>=3.0
 knoema
 openai
 pandas
 pydantic
 python-dotenv
 requests
-sqlalchemy
+sqlalchemy>=2.0
 uvicorn[standard]

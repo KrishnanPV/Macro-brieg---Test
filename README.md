@@ -69,10 +69,71 @@ frontend/src/
 
 ## Prerequisites
 
-- **Python 3.10+** and a virtual environment  
-- **Node.js 18+** and npm  
+- **Python 3.10+**
+- **Node.js 18+** and npm
+
+## Setup from scratch
+
+1. **Clone** the repo and open a terminal at the project root.
+
+2. **Python virtual environment** (recommended):
+
+   ```bash
+   python -m venv .venv
+   ```
+
+   Activate it:
+
+   - **Windows (PowerShell):** `.\.venv\Scripts\Activate.ps1`
+   - **macOS / Linux:** `source .venv/bin/activate`
+
+3. **Install backend dependencies:**
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. **Install frontend dependencies:**
+
+   ```bash
+   cd frontend && npm install && cd ..
+   ```
+
+5. **Environment variables** — copy the template and add your own keys (nothing secret ships in git):
+
+   ```bash
+   cp .env.example .env
+   ```
+
+   Windows **cmd**: `copy .env.example .env` — **PowerShell**: `Copy-Item .env.example .env`
+
+   Edit `.env`. See **Credentials** below and inline comments in [`.env.example`](.env.example).
+
+6. **Database directory** — default SQLite path is `./data/macrobrief.db`. Create the folder once so the file can be created:
+
+   ```bash
+   mkdir -p data
+   ```
+
+   On Windows PowerShell: `New-Item -ItemType Directory -Force data`
+
+7. **Run** (starts API on **8000**, then Vite dev server, usually **5173**):
+
+   ```bash
+   python launch.py
+   ```
+
+   Open **http://localhost:5173**. Stop with **Ctrl+C**.
+
+   Optional: `python launch.py --debug` (extra test-report toggles where implemented).
+
+**Manual split** (two terminals):  
+`python -m uvicorn backend.app:app --host 127.0.0.1 --port 8000`  
+and `cd frontend && npm run dev`
 
 ## Credentials (`.env`)
+
+All variables are listed in [`.env.example`](.env.example). You **must** supply your own values there (or in the environment); the repo does not include secrets.
 
 | Variable | Purpose |
 |----------|---------|
@@ -81,19 +142,9 @@ frontend/src/
 | `NEWSCATCHER_API_KEY` | News context for dashboard insights |
 | `PERPLEXITY_API_KEY`, `PERPLEXITY_URL` (optional), `PERPLEXITY_MODEL` (optional) | Country Brief deep analysis |
 | `DATABASE_URL` | Default: `sqlite+aiosqlite:///./data/macrobrief.db` |
-
-## Run locally
-
-```bash
-# repo root
-pip install -r requirements.txt
-cd frontend && npm install && cd ..
-python launch.py
-```
-
-Starts API on **8000**, then Vite (often **5173**). Open **http://localhost:5173**. Stop with **Ctrl+C**.
-
-Manual split: `python -m uvicorn backend.app:app --host 127.0.0.1 --port 8000` and `cd frontend && npm run dev`.
+| `LAST_ACTUAL_YEAR` | Optional; default `2025` |
+| `MACROBRIEF_DEBUG` | Set to `1` for optional debug behavior |
+| `BENCHMARK_USE_LLM` | Set to `1` to use GPT for FDI benchmark peers (default is deterministic) |
 
 ---
 
@@ -164,5 +215,6 @@ Both live under **`data/`** (usually gitignored). If your database was created l
 | [`frontend/`](frontend/) | React UI — `npm run dev` / `npm run build` |
 | [`data/`](data/) | Runtime SQLite databases (gitignored); do not delete while using saved workspaces |
 | [`requirements.txt`](requirements.txt) | Python dependencies |
+| [`.env.example`](.env.example) | Template for local `.env` (copy to `.env`, add keys) |
 
 There is no `lab/` folder in this repo (optional scratch scripts were removed). **`docs/`** was removed; use this README + source for behavior.
