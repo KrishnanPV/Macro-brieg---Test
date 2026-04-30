@@ -2,6 +2,10 @@
 
 Oxford Economics KPI data, a **multi-country Dashboard** with streaming AI insights per KPI, and an automated **Country Brief** (metrics ribbon, themed sections, inline charts, optional deep analysis with Perplexity news). Workspaces persist country/KPI selections and brief settings in SQLite.
 
+### Using this README after you pull the branch
+
+Follow **Setup from scratch** below in order. You need **Python 3.10+**, **Node 18+**, a filled-in **`.env`** (copy from **`.env.example`**), and a **`data/`** folder before **`python launch.py`**. The rest of this file is reference: how the app is structured, credentials, quick API list, and where files live on disk.
+
 ### In plain terms: what this repo is for
 
 You run **one backend** (Python) and **one frontend** (the website). Everything in `backend/` and `frontend/src/` is there to support **Landing**, **Dashboard**, **Country Brief**, **workspaces**, and **API keys / data fetching**. Nothing else is required for that.
@@ -74,7 +78,11 @@ frontend/src/
 
 ## Setup from scratch
 
-1. **Clone** the repo and open a terminal at the project root.
+1. **Clone** the repo and open a terminal at the project root. If you need this trimmed branch explicitly:
+
+   ```bash
+   git checkout trimmed-codebase
+   ```
 
 2. **Python virtual environment** (recommended):
 
@@ -145,6 +153,10 @@ All variables are listed in [`.env.example`](.env.example). You **must** supply 
 | `LAST_ACTUAL_YEAR` | Optional; default `2025` |
 | `MACROBRIEF_DEBUG` | Set to `1` for optional debug behavior |
 | `BENCHMARK_USE_LLM` | Set to `1` to use GPT for FDI benchmark peers (default is deterministic) |
+
+**If something fails:** confirm the venv is active, `pip` and `npm` installs finished without errors, `.env` has real keys for EAP + OpenAI + Newscatcher (Perplexity only needed for Country Brief deep mode), ports **8000** and **5173** are free, and you ran commands from the **repository root** (same folder as `launch.py`).
+
+**Optional — static frontend build:** `cd frontend && npm run build` writes `frontend/dist/` for hosting behind a real server; you must configure API URL / proxy for your deployment.
 
 ---
 
