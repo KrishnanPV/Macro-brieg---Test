@@ -77,6 +77,7 @@ const KPI_CHART_DEFAULTS = {
   '2':  { vizMode: 'bar',  freq: 'A' },
   '2-oil': { vizMode: 'line', freq: 'A' },
   '11': { vizMode: 'bar',  freq: 'A' },
+  '9':  { vizMode: 'line', freq: 'A' },
   '5':  { vizMode: 'line', freq: 'Q' },
 }
 const DEFAULT_CHART = { vizMode: 'line', freq: 'Q' }
@@ -414,6 +415,15 @@ export default function InlineChartBlock({
         onFlowModeChange={onFdiFlowModeChange}
         onYearRangeChange={onFdiBenchmarkYearChange}
       />
+    )
+  }
+
+  if (!kpiResult) {
+    return (
+      <div className={`rounded-lg border border-amber-100 bg-amber-50/90 px-3 py-2 text-[11px] text-amber-900 ${compact ? '' : 'my-2'}`}>
+        <span className="font-medium">KPI {kpiId}</span>
+        {' — '}no data in this brief&apos;s cache. Regenerate, or when using manual KPI selection include this indicator.
+      </div>
     )
   }
 

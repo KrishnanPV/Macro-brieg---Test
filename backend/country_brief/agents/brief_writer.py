@@ -95,7 +95,7 @@ def _reorder_section_charts(children: list[dict[str, Any]]) -> list[dict[str, An
     charts = [c for c in children if c.get("type") == "chart_ref"]
     if len(charts) <= 1:
         return children
-    charts.sort(key=lambda c: _CHART_ORDER.get(c.get("kpi_id", ""), 99))
+    charts.sort(key=lambda c: _CHART_ORDER.get(str(c.get("kpi_id", "")), 99))
     result: list[dict[str, Any]] = []
     chart_iter = iter(charts)
     for c in children:
@@ -143,10 +143,12 @@ def parse_brief_blocks(raw_text: str) -> list[dict[str, Any]]:
         deduped: list[dict[str, Any]] = []
         for sb in sub_blocks:
             if sb.get("type") == "chart_ref":
-                kid = sb.get("kpi_id", "")
-                if kid in global_seen_charts:
+                kid = str(sb.get("kpi_id", "")).strip()
+                if not kid or kid in global_seen_charts:
                     continue
                 global_seen_charts.add(kid)
+                deduped.append({**sb, "kpi_id": kid})
+                continue
             deduped.append(sb)
         blocks.append({"type": "section", "title": title, "children": deduped})
 

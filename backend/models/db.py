@@ -1,15 +1,17 @@
-"""SQLAlchemy models and database setup for persistence."""
+"""Workspace storage in SQLite (via SQLAlchemy). Legacy tables from older apps
+may still exist in the DB file; ``purge_legacy_workspace_rows`` clears them on
+workspace delete so nothing breaks.
+"""
 from __future__ import annotations
 
 import json
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import (
-    Column, String, Text, Float, Integer, DateTime, ForeignKey, event, inspect, text,
-)
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy.orm import DeclarativeBase, relationship
+from sqlalchemy import Column, String, Text, DateTime, inspect, text
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import DeclarativeBase
 
 from backend.config import DATABASE_URL
 
@@ -26,10 +28,6 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-# ---------------------------------------------------------------------------
-# Workspace
-# ---------------------------------------------------------------------------
-
 class Workspace(Base):
     __tablename__ = "workspaces"
 
@@ -41,13 +39,6 @@ class Workspace(Base):
     country_brief_json = Column(Text, default="{}")
     created_at = Column(DateTime, default=_utcnow)
     updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
-
-    cells = relationship("NotebookCell", back_populates="workspace", cascade="all, delete-orphan")
-    graph_nodes = relationship("GraphNode", back_populates="workspace", cascade="all, delete-orphan")
-    graph_edges = relationship("GraphEdge", back_populates="workspace", cascade="all, delete-orphan")
-    context_docs = relationship("ContextDocument", back_populates="workspace", cascade="all, delete-orphan")
-    flashcard_decks = relationship("FlashCardDeck", back_populates="workspace", cascade="all, delete-orphan")
-    briefs = relationship("Brief", back_populates="workspace", cascade="all, delete-orphan")
 
     @property
     def countries(self) -> list[str]:
@@ -74,184 +65,30 @@ class Workspace(Base):
         self.country_brief_json = json.dumps(val)
 
 
-# ---------------------------------------------------------------------------
-# Notebook Cells
-# ---------------------------------------------------------------------------
-
-class NotebookCell(Base):
-    __tablename__ = "notebook_cells"
-
-    id = Column(String, primary_key=True, default=_uuid)
-    workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
-    cell_type = Column(String, nullable=False)  # markdown | data | ai | insight | source
-    content = Column(Text, default="")
-    meta_json = Column(Text, default="{}")
-    position = Column(Integer, default=0)
-    created_at = Column(DateTime, default=_utcnow)
-    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
-
-    workspace = relationship("Workspace", back_populates="cells")
-
-    @property
-    def cell_meta(self) -> dict:
-        return json.loads(self.meta_json or "{}")
-
-    @cell_meta.setter
-    def cell_meta(self, val: dict) -> None:
-        self.meta_json = json.dumps(val, default=str)
-
-
-# ---------------------------------------------------------------------------
-# Knowledge Graph
-# ---------------------------------------------------------------------------
-
-class GraphNode(Base):
-    __tablename__ = "graph_nodes"
-
-    id = Column(String, primary_key=True, default=_uuid)
-    workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
-    node_type = Column(String, nullable=False)
-    label = Column(String, nullable=False)
-    meta_json = Column(Text, default="{}")
-    x = Column(Float, nullable=True)
-    y = Column(Float, nullable=True)
-    created_at = Column(DateTime, default=_utcnow)
-
-    workspace = relationship("Workspace", back_populates="graph_nodes")
-
-    @property
-    def node_meta(self) -> dict:
-        return json.loads(self.meta_json or "{}")
-
-    @node_meta.setter
-    def node_meta(self, val: dict) -> None:
-        self.meta_json = json.dumps(val, default=str)
-
-
-class GraphEdge(Base):
-    __tablename__ = "graph_edges"
-
-    id = Column(String, primary_key=True, default=_uuid)
-    workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
-    source_id = Column(String, ForeignKey("graph_nodes.id"), nullable=False)
-    target_id = Column(String, ForeignKey("graph_nodes.id"), nullable=False)
-    edge_type = Column(String, nullable=False)
-    label = Column(String, default="")
-    meta_json = Column(Text, default="{}")
-    created_at = Column(DateTime, default=_utcnow)
-
-    workspace = relationship("Workspace", back_populates="graph_edges")
-
-    @property
-    def edge_meta(self) -> dict:
-        return json.loads(self.meta_json or "{}")
-
-    @edge_meta.setter
-    def edge_meta(self, val: dict) -> None:
-        self.meta_json = json.dumps(val, default=str)
-
-
-# ---------------------------------------------------------------------------
-# Context Documents
-# ---------------------------------------------------------------------------
-
-class ContextDocument(Base):
-    __tablename__ = "context_documents"
-
-    id = Column(String, primary_key=True, default=_uuid)
-    workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
-    title = Column(String, nullable=False)
-    content = Column(Text, default="")
-    doc_type = Column(String, default="text")
-    source_url = Column(String, nullable=True)
-    created_at = Column(DateTime, default=_utcnow)
-
-    workspace = relationship("Workspace", back_populates="context_docs")
-
-
-# ---------------------------------------------------------------------------
-# Flash Cards
-# ---------------------------------------------------------------------------
-
-class FlashCardDeck(Base):
-    __tablename__ = "flashcard_decks"
-
-    id = Column(String, primary_key=True, default=_uuid)
-    workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
-    name = Column(String, nullable=False)
-    tags_json = Column(Text, default="[]")
-    created_at = Column(DateTime, default=_utcnow)
-
-    workspace = relationship("Workspace", back_populates="flashcard_decks")
-    cards = relationship("FlashCard", back_populates="deck", cascade="all, delete-orphan")
-
-    @property
-    def tags(self) -> list[str]:
-        return json.loads(self.tags_json or "[]")
-
-    @tags.setter
-    def tags(self, val: list[str]) -> None:
-        self.tags_json = json.dumps(val)
-
-
-class FlashCard(Base):
-    __tablename__ = "flashcards"
-
-    id = Column(String, primary_key=True, default=_uuid)
-    deck_id = Column(String, ForeignKey("flashcard_decks.id"), nullable=False)
-    front = Column(Text, nullable=False)
-    back = Column(Text, nullable=False)
-    source_cell_id = Column(String, nullable=True)
-    tags_json = Column(Text, default="[]")
-    ease_factor = Column(Float, default=2.5)
-    interval_days = Column(Integer, default=1)
-    repetitions = Column(Integer, default=0)
-    next_review = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=_utcnow)
-
-    deck = relationship("FlashCardDeck", back_populates="cards")
-
-    @property
-    def tags(self) -> list[str]:
-        return json.loads(self.tags_json or "[]")
-
-    @tags.setter
-    def tags(self, val: list[str]) -> None:
-        self.tags_json = json.dumps(val)
-
-
-# ---------------------------------------------------------------------------
-# Briefs
-# ---------------------------------------------------------------------------
-
-class Brief(Base):
-    __tablename__ = "briefs"
-
-    id = Column(String, primary_key=True, default=_uuid)
-    workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
-    title = Column(String, nullable=False)
-    template = Column(String, default="country_overview")
-    content_json = Column(Text, default="{}")
-    created_at = Column(DateTime, default=_utcnow)
-    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
-
-    workspace = relationship("Workspace", back_populates="briefs")
-
-    @property
-    def content(self) -> dict:
-        return json.loads(self.content_json or "{}")
-
-    @content.setter
-    def content(self, val: dict) -> None:
-        self.content_json = json.dumps(val, default=str)
-
-
-# ---------------------------------------------------------------------------
-# Engine & session factory
-# ---------------------------------------------------------------------------
-
 engine = create_async_engine(DATABASE_URL, echo=False)
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+
+# FK-safe order for legacy tables that referenced workspaces.id
+_LEGACY_ROW_PURGE_SQL = (
+    "DELETE FROM flashcards WHERE deck_id IN "
+    "(SELECT id FROM flashcard_decks WHERE workspace_id = :wid)",
+    "DELETE FROM flashcard_decks WHERE workspace_id = :wid",
+    "DELETE FROM graph_edges WHERE workspace_id = :wid",
+    "DELETE FROM graph_nodes WHERE workspace_id = :wid",
+    "DELETE FROM context_documents WHERE workspace_id = :wid",
+    "DELETE FROM notebook_cells WHERE workspace_id = :wid",
+    "DELETE FROM briefs WHERE workspace_id = :wid",
+)
+
+
+async def purge_legacy_workspace_rows(session: AsyncSession, workspace_id: str) -> None:
+    """Remove rows in deprecated tables for this workspace (ignore missing tables)."""
+    for stmt in _LEGACY_ROW_PURGE_SQL:
+        try:
+            await session.execute(text(stmt), {"wid": workspace_id})
+        except OperationalError:
+            pass
 
 
 def _migrate_sqlite_schema(sync_conn) -> None:
@@ -269,7 +106,7 @@ def _migrate_sqlite_schema(sync_conn) -> None:
 
 
 async def init_db() -> None:
-    """Create all tables (idempotent) and align legacy SQLite schemas."""
+    """Create workspace table (idempotent) and align legacy SQLite schemas."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_migrate_sqlite_schema)

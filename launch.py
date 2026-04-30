@@ -4,7 +4,6 @@ Stop with Ctrl+C (or SIGTERM): child processes are terminated cleanly.
 
 Run from the project root:
   python launch.py                  # main platform (frontend on :5173)
-  python launch.py --insights-lab   # insights lab  (insights_lab on :5174)
   python launch.py --debug          # enable test-report store/load buttons
 """
 from __future__ import annotations
@@ -12,6 +11,7 @@ from __future__ import annotations
 import argparse
 import os
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -20,7 +20,6 @@ import urllib.request
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 FRONTEND = os.path.join(ROOT, "frontend")
-INSIGHTS_LAB = os.path.join(ROOT, "insights_lab")
 
 # No --reload: single uvicorn process so shutdown stays predictable.
 API_CMD = [
@@ -64,14 +63,27 @@ def _wait_for_kpi_api(proc: subprocess.Popen, timeout_s: float = 90.0) -> None:
     sys.exit(1)
 
 
+def _exit_if_port_busy(port: int) -> None:
+    """Fail fast with a short message if another process already uses this port."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind(("127.0.0.1", port))
+    except OSError:
+        print("", file=sys.stderr)
+        print(f"  PORT {port} IS ALREADY IN USE", file=sys.stderr)
+        print("  -----------------------------", file=sys.stderr)
+        print("  You probably still have Macro Brief running in another window.", file=sys.stderr)
+        print("  Fix: go to that window and press Ctrl+C", file=sys.stderr)
+        print("  Or run:  netstat -ano | findstr \":8000\"", file=sys.stderr)
+        print("  Then:    taskkill /PID <number> /F   (use the LISTENING line)", file=sys.stderr)
+        print("", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        s.close()
+
+
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Launch Macro Brief platform.")
-    p.add_argument(
-        "--insights-lab",
-        action="store_true",
-        dest="insights_lab",
-        help="Start the Insights Lab frontend (port 5174) instead of the main UI.",
-    )
     p.add_argument(
         "--debug",
         action="store_true",
@@ -86,11 +98,8 @@ def main() -> None:
         os.environ["MACROBRIEF_DEBUG"] = "1"
     os.chdir(ROOT)
 
-    fe_dir = INSIGHTS_LAB if args.insights_lab else FRONTEND
-    fe_label = "Insights Lab (port 5174)" if args.insights_lab else "Frontend (port 5173)"
-
-    if not os.path.isdir(fe_dir):
-        print(f"{fe_dir}/ not found — run this script from the project root.", file=sys.stderr)
+    if not os.path.isdir(FRONTEND):
+        print(f"{FRONTEND}/ not found — run this script from the project root.", file=sys.stderr)
         sys.exit(1)
 
     fe_shell = sys.platform == "win32"
@@ -128,17 +137,25 @@ def main() -> None:
     signal.signal(signal.SIGTERM, handle_signal)
 
     try:
+        _exit_if_port_busy(8000)
+        api_env = os.environ.copy()
+        api_env["PYTHONUNBUFFERED"] = "1"
         api_proc = subprocess.Popen(
             API_CMD,
             cwd=ROOT,
+            env=api_env,
         )
         procs.append(api_proc)
         _wait_for_kpi_api(api_proc)
-        print(f"Starting {fe_label}…")
+        print()
+        print("  >>> Use this same window when you test Country Brief.")
+        print("  >>> After you click Generate, look for:  Perplexity / news research")
+        print()
+        print("Starting Frontend (port 5173)…")
         procs.append(
             subprocess.Popen(
                 _npm_run_dev(),
-                cwd=fe_dir,
+                cwd=FRONTEND,
                 shell=fe_shell,
             )
         )

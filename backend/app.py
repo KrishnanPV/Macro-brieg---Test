@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.models.db import init_db
-from backend.routers import data, insights, workspace, graph, export, costs
+from backend.routers import data, insights, workspace, costs
 from backend.country_brief.router import router as country_brief_router
 from backend.services.cost_tracker import init_cost_db
 
@@ -31,8 +31,8 @@ app = FastAPI(title="Macro Brief Research Platform", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:5173", "http://127.0.0.1:5173",
-        "http://localhost:5174", "http://127.0.0.1:5174",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
     ],
     allow_methods=["*"],
     allow_headers=["*"],
@@ -41,8 +41,6 @@ app.add_middleware(
 app.include_router(data.router)
 app.include_router(insights.router)
 app.include_router(workspace.router)
-app.include_router(graph.router)
-app.include_router(export.router)
 app.include_router(country_brief_router)
 app.include_router(costs.router)
 

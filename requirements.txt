@@ -1,0 +1,10 @@
+aiosqlite
+fastapi
+knoema
+openai
+pandas
+pydantic
+python-dotenv
+requests
+sqlalchemy
+uvicorn[standard]

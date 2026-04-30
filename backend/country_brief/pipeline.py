@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 import uuid
 from datetime import datetime
 from typing import Any, Iterator
@@ -177,6 +178,63 @@ def _assign_exhibit_labels(blocks: list[dict[str, Any]], exhibit_map: dict[str, 
                 label = exhibit_map.get(kid)
                 if label:
                     child["exhibit_label"] = label
+
+
+def _is_demographics_section_title(title: str) -> bool:
+    """Match demographics section even if the model shortens the heading."""
+    t = (title or "").lower()
+    return "demographic" in t
+
+
+def _ensure_kpi9_demographics_chart(
+    blocks: list[dict[str, Any]],
+    ids_with_data: set[str],
+) -> list[dict[str, Any]]:
+    """Ensure population (KPI 9) chart sits under the Demographics section.
+
+    Inserts the section before Forward Outlook if missing; strips misplaced KPI 9
+    charts from other sections; appends chart_ref when needed.
+    """
+    if "9" not in ids_with_data:
+        return blocks
+
+    demo_idx: int | None = None
+    for i, b in enumerate(blocks):
+        if b.get("type") == "section" and _is_demographics_section_title(b.get("title", "")):
+            demo_idx = i
+            break
+
+    if demo_idx is None:
+        insert_at = len(blocks)
+        for i, b in enumerate(blocks):
+            if b.get("type") == "outlook":
+                insert_at = i
+                break
+        blocks.insert(insert_at, {
+            "type": "section",
+            "title": "Demographics & Structural Factors",
+            "children": [],
+        })
+        demo_idx = insert_at
+
+    for i, b in enumerate(blocks):
+        if i == demo_idx or b.get("type") != "section":
+            continue
+        oc = list(b.get("children") or [])
+        b["children"] = [
+            c for c in oc
+            if not (c.get("type") == "chart_ref" and str(c.get("kpi_id")) == "9")
+        ]
+
+    demo = blocks[demo_idx]
+    children = list(demo.get("children") or [])
+    if not any(
+        c.get("type") == "chart_ref" and str(c.get("kpi_id")) == "9"
+        for c in children
+    ):
+        children.append({"type": "chart_ref", "kpi_id": "9"})
+    demo["children"] = children
+    return blocks
 
 
 def _inject_oil_gdp_split(blocks: list[dict[str, Any]], is_gcc: bool, exhibit_map: dict[str, str]) -> None:
@@ -377,9 +435,42 @@ def run_pipeline(
                 signal_interpretation=signal_interpretation,
                 all_kpi_signals=all_kpi_signals,
             )
-            log.info("Perplexity returned %d articles", len(articles_flat))
+            n = len(articles_flat)
+            # print + flush: visible in the uvicorn terminal (app loggers are easy to miss)
+            def _pplx_line(msg: str) -> None:
+                print(msg, file=sys.stderr, flush=True)
+
+            _pplx_line("========== Perplexity / news research ==========")
+            _pplx_line(f"Country {req.country} | articles in news_catalog: {n}")
+            preview_n = min(n, 12)
+            for i, a in enumerate(articles_flat[:preview_n], 1):
+                title = (a.get("title") or "")[:100]
+                dt = a.get("date") or ""
+                src = a.get("source") or ""
+                url = (a.get("url") or "")[:80]
+                snip = (a.get("snippet") or "")[:160].replace("\n", " ")
+                _pplx_line(f"  [{i}/{n}] {title} | date={dt} | source={src}")
+                _pplx_line(f"        url: {url}")
+                _pplx_line(f"        snippet: {snip}")
+            if n > preview_n:
+                _pplx_line(f"  ... {n - preview_n} more (omitted from terminal preview)")
+            _pplx_line("==================================================")
+            log.info("Perplexity news_catalog: %d articles", n)
         except Exception as exc:
+            print(f"[Perplexity] ERROR: {exc}", file=sys.stderr, flush=True)
             log.warning("News research failed: %s", exc)
+    elif not deep_analysis:
+        print(
+            "[Perplexity] Skipped: deep_analysis=False (enable deep analysis for news fetch)",
+            file=sys.stderr,
+            flush=True,
+        )
+    elif not signals_data:
+        print(
+            "[Perplexity] Skipped: no signals_data after ranking (nothing to match to news)",
+            file=sys.stderr,
+            flush=True,
+        )
 
     yield _ndjson({
         "type": "news_catalog",
@@ -486,6 +577,7 @@ def run_pipeline(
 
     # ── Phase 5: Parse and finalize ──────────────────────────────────────
     blocks = parse_brief_blocks(full_text)
+    blocks = _ensure_kpi9_demographics_chart(blocks, ids_with_data)
     fallback_chart_ids = [kid for kid in available_ids if kid in ids_with_data]
     blocks = _ensure_chart_blocks(blocks, preferred_chart_ids=fallback_chart_ids)
     _assign_exhibit_labels(blocks, exhibit_map)

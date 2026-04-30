@@ -10,12 +10,6 @@
     "preview": "node ./node_modules/vite/bin/vite.js preview"
   },
   "dependencies": {
-    "@dagrejs/dagre": "^3.0.0",
-    "@tiptap/pm": "^3.22.2",
-    "@tiptap/react": "^3.22.2",
-    "@tiptap/starter-kit": "^3.22.2",
-    "@xyflow/react": "^12.10.2",
-    "dagre": "^0.8.5",
     "lucide-react": "^1.7.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
