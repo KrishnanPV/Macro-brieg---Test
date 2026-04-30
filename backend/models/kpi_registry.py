@@ -103,8 +103,8 @@ INSIGHT_LENSES: dict[str, InsightLens] = {
     "1": InsightLens(
         headline="Nominal GDP by Sector",
         notability_cues=[
-            "Sector-share shifts >5pp between periods signal structural change (diversification or concentration).",
-            "Cross-country outliers where the dominant sector differs from regional norms.",
+            "Sector-share shifts >3pp between periods signal structural change (diversification or concentration).",
+            "The composition data now includes pre-computed share percentages — use them directly.",
         ],
         context_hooks=[
             "National economic diversification programs (e.g. Saudi Vision 2030, UAE Economic Vision 2030, Qatar National Vision 2030).",
@@ -114,12 +114,13 @@ INSIGHT_LENSES: dict[str, InsightLens] = {
         forbidden_claims=[
             "Do not infer real growth from nominal series — nominal changes can reflect price, not output.",
             "Do not compare absolute LCU values across countries with different currencies.",
+            "Do not infer sector productivity from nominal output changes.",
         ],
         units_note="Local currency units at current prices (nominal). Synthesize sectors — do not bullet each one separately.",
         narrative_guidance=[
-            "Frame sector composition as a diversification narrative: which sectors are gaining share and why.",
-            "Connect share shifts to named policy programs or structural forces — never present shares in isolation.",
             "Synthesize agriculture, industry, and services into a single composition story; do not bullet each sector separately.",
+            "This is a NOMINAL series — caveat that share changes can reflect price effects, not just real output shifts.",
+            "Lead with which sector is largest and how its share moved, then explain the driver.",
         ],
     ),
     "2": InsightLens(
@@ -127,6 +128,7 @@ INSIGHT_LENSES: dict[str, InsightLens] = {
         notability_cues=[
             "Oil-vs-non-oil growth divergence — non-oil growing faster is a diversification signal.",
             "Sharp drops in oil GDP (volume) suggesting production cuts or demand shocks.",
+            "Growth gap data is pre-computed — use it to quantify the divergence directly.",
         ],
         context_hooks=[
             "OPEC+ production agreements, voluntary production cuts, and quota compliance.",
@@ -136,20 +138,21 @@ INSIGHT_LENSES: dict[str, InsightLens] = {
         forbidden_claims=[
             "Do not attribute oil GDP changes to price — this is a real (volume) series.",
             "Do not claim diversification from a single quarter of non-oil growth.",
+            "Do not reference oil prices as a driver of oil real GDP — production volume is the mechanism.",
         ],
         units_note="Real LCU (constant prices). Report the oil/non-oil split only.",
         narrative_guidance=[
-            "Lead with the oil/non-oil divergence narrative — state which is outpacing and by how much.",
-            "Connect oil-GDP volume changes to specific OPEC+ decisions or production events, not price.",
-            "Frame non-oil acceleration as a structural story: link to diversification programs and policy drivers.",
+            "Lead with the oil/non-oil divergence — state which is outpacing and by how much.",
+            "Connect oil GDP volume to specific OPEC+ decisions. Frame non-oil as a structural story.",
+            "This is the PRIMARY economic identity lens for oil-exporting economies.",
         ],
     ),
     "3": InsightLens(
         headline="Real GDP Growth (YoY)",
         notability_cues=[
             "Growth inflection points — sign changes or swings >2pp between periods.",
-            "Cross-country growth-rate spread: wide dispersion implies divergent cyclical positions.",
-            "Consecutive negative quarters (technical recession) vs isolated dips.",
+            "The period highlight signal identifies the single most significant movement — lead with it.",
+            "Consecutive negative periods (recession) vs isolated dips.",
         ],
         context_hooks=[
             "Fiscal stimulus or austerity programs, government spending plans, and budget announcements.",
@@ -163,17 +166,17 @@ INSIGHT_LENSES: dict[str, InsightLens] = {
         ],
         units_note="Year-on-year %.",
         narrative_guidance=[
-            "Frame growth relative to the country's own trend and regional peers; always connect to the primary growth driver.",
-            "Use the contrast pattern when growth diverges from expectations: '[Country] grew X%, [but/despite] [counterpoint].'",
+            "Lead with the growth arc — start, peak/trough, end. Walk through the timeline.",
             "For oil-dependent economies, distinguish oil-volume-driven growth from broad-based expansion.",
+            "Connect to KPI 2 and KPI 11 where both are in the payload for L2 depth.",
         ],
     ),
     "4": InsightLens(
         headline="FDI Inflow & Outflow",
         notability_cues=[
-            "Net FDI position (inward minus outward) and what it signals about capital-flow direction.",
-            "Abrupt reversals or large swings in inward FDI between quarters.",
-            "Order-of-magnitude differences in FDI scale across countries.",
+            "Net FDI position (inward minus outward) — pre-computed in net_flow data.",
+            "Abrupt reversals or large swings in inward FDI between periods.",
+            "FDI flows are inherently lumpy — distinguish trend from single-transaction noise.",
         ],
         context_hooks=[
             "Investment law reforms, foreign ownership liberalization, and special economic zone launches.",
@@ -184,18 +187,19 @@ INSIGHT_LENSES: dict[str, InsightLens] = {
         forbidden_claims=[
             "Do not conflate FDI with portfolio flows or remittances.",
             "Do not claim FDI causes GDP growth — causality is ambiguous.",
+            "Do not confuse FDI stock with FDI flow.",
         ],
         narrative_guidance=[
-            "Always frame the net FDI position (inward minus outward) before discussing individual flows.",
+            "Start with the descriptive trajectory of inflows and outflows across the period before interpreting.",
             "Connect FDI swings to specific policy reforms, zone launches, or geopolitical events.",
-            "Use the institutional anchor pattern when citing investment climate rankings or projections.",
+            "For SWF-active economies, note outward FDI as deliberate strategy, not capital flight.",
         ],
     ),
     "5": InsightLens(
         headline="Unemployment Rate",
         notability_cues=[
             "Cumulative change >2pp over the window — strong structural shift.",
-            "Rates near frictional floor (2-3%) vs elevated slack (>8%) and what each means.",
+            "Persistently high (>8%) or low (<3%) levels are notable even if the rate is stable.",
             "GCC-specific context: visa-based labor systems can mask true labor-market tightness.",
         ],
         context_hooks=[
@@ -209,9 +213,9 @@ INSIGHT_LENSES: dict[str, InsightLens] = {
         ],
         units_note="Percentage (%).",
         narrative_guidance=[
-            "Frame the rate within the country's labor-market structure — distinguish visa-based systems from open labor markets.",
-            "Connect rate movements to specific nationalization programs or labor law reforms.",
-            "For GCC economies, note that headline unemployment may not capture the expatriate workforce dynamic.",
+            "Lead with the rate and its direction over the window — is the improvement structural or cyclical?",
+            "Connect to consumption (KPI 6) through the income channel: falling unemployment → wage income → purchasing power.",
+            "In visa-based labour markets, distinguish citizen unemployment from total workforce dynamics.",
         ],
     ),
     "6": InsightLens(
@@ -228,19 +232,20 @@ INSIGHT_LENSES: dict[str, InsightLens] = {
         ],
         forbidden_claims=[
             "Do not infer per-capita consumption without population data from KPI 9 in the payload.",
+            "This is annual frequency data — do not infer quarterly consumption patterns.",
         ],
         units_note="Real PPP-adjusted. Annual frequency.",
         narrative_guidance=[
-            "Position consumption relative to GDP growth: is domestic demand leading or lagging the expansion?",
-            "Name the transmission channel — credit conditions, wage policy, subsidy reform, VAT — that explains the consumer spending trajectory.",
-            "Use the contrast pattern when consumption diverges from inflation or income trends.",
+            "Position consumption relative to GDP growth: is domestic demand leading or lagging?",
+            "Name the transmission channel: credit, wages, subsidies, VAT.",
+            "Test for consumption resilience through adverse GDP periods — this is a key structural signal.",
         ],
     ),
     "7": InsightLens(
         headline="CPI Inflation (YoY)",
         notability_cues=[
-            "Trend direction: acceleration (>1pp rise q/q) vs disinflation vs deflation (only if negative).",
-            "Cross-country spread — large divergence implies different monetary/supply regimes.",
+            "Trend direction: acceleration (>1pp rise period-over-period) vs disinflation vs deflation (only if negative).",
+            "Inflation stability — low volatility in a high-growth environment is analytically notable.",
             "Breaching central-bank comfort zones (2% advanced, 3-5% emerging) and policy bias it implies.",
         ],
         context_hooks=[
@@ -252,18 +257,19 @@ INSIGHT_LENSES: dict[str, InsightLens] = {
         forbidden_claims=[
             "Do not label 'deflation' unless YoY CPI is actually negative.",
             "Do not prescribe interest-rate actions — frame as directional bias only.",
+            "Do not infer core, food, or housing inflation from the headline CPI series — only headline data is available.",
         ],
         units_note="Year-on-year %.",
         narrative_guidance=[
-            "Distinguish between cost-push and demand-pull dynamics; always mention the monetary policy regime (peg vs float) and its implications.",
-            "State the CPI figure once with comparative framing ('X% vs Y% in the prior period') — do not repeat the same number across sentences.",
-            "For pegged-currency economies, explain the interest-rate pass-through from the anchor central bank (e.g., Fed).",
+            "Lead with the inflation arc as a single thread — do not list CPI alongside other KPIs.",
+            "Distinguish cost-push from demand-pull. Always mention the monetary regime (peg vs float).",
+            "For pegged economies, explain the interest-rate pass-through from the anchor central bank.",
         ],
     ),
     "8": InsightLens(
         headline="External Debt (% GDP)",
         notability_cues=[
-            "Level thresholds: <30% manageable, 30-60% warrants monitoring, >60% sustainability concern.",
+            "Interpret the level relative to the country's exchange rate regime, reserve position, and whether it is a financial center.",
             "Rapid increases (>5pp/year) — distinguish borrowing-driven from GDP-contraction-driven.",
         ],
         context_hooks=[
@@ -271,6 +277,7 @@ INSIGHT_LENSES: dict[str, InsightLens] = {
             "IMF program agreements, World Bank development financing, and credit rating actions.",
             "Fiscal consolidation plans, medium-term fiscal frameworks, and debt management strategies.",
             "Currency peg defense costs and reserve adequacy considerations.",
+            "For financial center economies (UAE, Qatar), gross external debt reflects international financial intermediation, not sovereign stress.",
         ],
         forbidden_claims=[
             "Do not make definitive sustainability claims — depends on rates, currency, maturity, reserves.",
@@ -278,22 +285,23 @@ INSIGHT_LENSES: dict[str, InsightLens] = {
         ],
         units_note="Percentage of GDP (%).",
         narrative_guidance=[
-            "Distinguish whether debt-ratio changes are borrowing-driven or GDP-denominator-driven.",
-            "Connect debt movements to specific issuances (sukuk, Eurobonds) or fiscal consolidation programs.",
-            "Use hedged language ('warrants monitoring', 'consistent with') — avoid definitive sustainability verdicts.",
+            "Decompose whether debt-ratio changes are borrowing-driven or GDP-denominator-driven.",
+            "Connect to specific issuances (sukuk, Eurobonds) or fiscal programmes.",
+            "Hedge sustainability claims: 'warrants monitoring,' 'consistent with' — no definitive verdicts.",
         ],
     ),
     "9": InsightLens(
         headline="Population",
         notability_cues=[
-            "Growth rate >2% is high globally (immigration or high fertility); <1% is demographic maturity.",
-            "Large scale differences across countries and implications for market size and labor supply.",
+            "Growth rate >2% is high globally (immigration or high fertility); negative growth is always notable.",
+            "Population growth rate relative to the country's own recent history signals structural demographic change.",
         ],
         context_hooks=[
             "Immigration policy changes: visa reforms, long-term residency programs (e.g. Golden Visa, Premium Residency).",
             "Expatriate levy or quota changes affecting migrant worker inflows/outflows.",
             "Mega-project construction booms driving temporary labor importation.",
             "Demographic policy and social reform programs (housing, family support).",
+            "For aging economies: pension sustainability, healthcare costs, labor supply constraints.",
         ],
         forbidden_claims=[
             "Do not infer GDP per capita unless GDP data is in the payload.",
@@ -301,9 +309,9 @@ INSIGHT_LENSES: dict[str, InsightLens] = {
         ],
         units_note="Express in millions to 2 dp or whole numbers. Annual.",
         narrative_guidance=[
-            "Frame population growth as a structural story — distinguish migration-driven growth from natural increase.",
-            "Connect population dynamics to labor market implications: workforce expansion, dependency ratios, market sizing.",
-            "For GCC economies, link population changes to specific visa or residency policy reforms.",
+            "Frame population as a structural indicator — it is a leading signal for domestic demand.",
+            "Distinguish migration-driven growth from natural increase. Connect to labour supply and consumer base.",
+            "For GCC economies, link population changes to specific visa/residency reforms and project labour demand.",
         ],
     ),
     "10": InsightLens(
@@ -314,6 +322,7 @@ INSIGHT_LENSES: dict[str, InsightLens] = {
         context_hooks=[],
         forbidden_claims=[
             "Do not fabricate GDP expenditure components.",
+            "Do not construct expenditure-side GDP narratives from fiscal news when NEA data is unavailable.",
         ],
         narrative_guidance=[
             "If expenditure-side data is unavailable, do not attempt to reconstruct it from other KPIs.",
@@ -322,8 +331,8 @@ INSIGHT_LENSES: dict[str, InsightLens] = {
     "11": InsightLens(
         headline="Real GDP by Sector",
         notability_cues=[
-            "Sector-share shifts >5pp between periods signal structural change (diversification or concentration).",
-            "Cross-country outliers where the dominant sector differs from regional norms.",
+            "Sector-share shifts >3pp between periods signal structural change — use pre-computed composition data.",
+            "Manufacturing growing faster than overall industry signals higher-value-added industrialization.",
         ],
         context_hooks=[
             "National economic diversification programs (e.g. Saudi Vision 2030, UAE Economic Vision 2030, Qatar National Vision 2030).",
@@ -332,12 +341,13 @@ INSIGHT_LENSES: dict[str, InsightLens] = {
         ],
         forbidden_claims=[
             "Do not compare absolute LCU values across countries with different currencies.",
+            "Do not confuse this real (volume) series with the nominal sector split (KPI 1) — do not infer price effects.",
         ],
         units_note="Real LCU (constant prices). Synthesize sectors — do not bullet each one separately.",
         narrative_guidance=[
-            "Frame sector composition as a diversification narrative: which sectors are gaining share and why.",
-            "Connect share shifts to named policy programs or structural forces — never present shares in isolation.",
-            "Synthesize agriculture, industry, manufacturing, and services into a single composition story.",
+            "Lead with which sectors are gaining share and connect to named policy programmes.",
+            "This is the REAL sector split — focus on output mix. Differentiate from KPI 1 (nominal).",
+            "Synthesize sectors into a composition story. Do not bullet each sector separately.",
         ],
     ),
 }

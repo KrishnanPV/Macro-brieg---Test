@@ -557,7 +557,7 @@ export default function KpiCard({
                 <YAxis tick={{ fontSize: 10, fill: '#94a3b8', fontFamily: 'inherit' }} tickFormatter={formatAxisTick} axisLine={false} tickLine={false} allowDataOverflow={!!zoomDomain} />
                 <Tooltip content={<CustomTooltip formatter={tooltipFmt} />} />
                 {visibleSeriesKeys.map(sk => (
-                  <Area key={sk.key} type="monotone" dataKey={sk.key} stroke={sk.color}
+                  <Area key={sk.key} type="linear" dataKey={sk.key} stroke={sk.color}
                     fill={`url(#grad-${kpi_id}-${sk.key.replace(/\W/g, '_')})`}
                     strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 2, fill: '#fff' }} />
                 ))}
@@ -575,7 +575,7 @@ export default function KpiCard({
                 <XAxis dataKey="date" tickFormatter={axisFmt} ticks={ticks} interval={0} tick={{ fontSize: 10, fill: '#94a3b8', fontFamily: 'inherit' }} height={30} axisLine={{ stroke: '#e2e8f0' }} padding={{ left: 4, right: 4 }} allowDataOverflow={!!zoomDomain} />
                 <YAxis tick={{ fontSize: 10, fill: '#94a3b8', fontFamily: 'inherit' }} tickFormatter={formatAxisTick} axisLine={false} tickLine={false} allowDataOverflow={!!zoomDomain} />
                 <Tooltip content={<CustomTooltip formatter={tooltipFmt} />} />
-                {visibleSeriesKeys.map(sk => <Line key={sk.key} type="monotone" dataKey={sk.key} stroke={sk.color} dot={false} strokeWidth={2} activeDot={{ r: 4, strokeWidth: 2, fill: '#fff' }} />)}
+                {visibleSeriesKeys.map(sk => <Line key={sk.key} type="linear" dataKey={sk.key} stroke={sk.color} dot={false} strokeWidth={2} activeDot={{ r: 4, strokeWidth: 2, fill: '#fff' }} />)}
                 {zoomRefArea}
               </LineChart>
             </ResponsiveContainer>

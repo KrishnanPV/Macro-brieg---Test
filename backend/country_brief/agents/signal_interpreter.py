@@ -43,15 +43,18 @@ If yes, it is too shallow. Name the specific trigger and explain the mechanism.
 
 Respond with JSON:
 {
+  "period_highlight": "One sentence identifying the single most significant economic development in the window — this becomes the governing thought for the brief.",
   "themes": [
     {
       "title": "theme name",
       "thesis": "One-sentence governing thought for this theme",
+      "nature": "structural or cyclical — is this theme about a permanent shift or a temporary fluctuation?",
       "causal_chains": [
         {
           "trigger": "Specific named event, policy, or structural force with date/period",
           "mechanism": "How the trigger transmits to KPI impact — name the economic channel",
           "kpi_impact": "The resulting data movement with specific figures from the signals",
+          "structural_or_cyclical": "structural or cyclical",
           "signal_ids": ["sig_1", "sig_2"]
         }
       ],
@@ -61,10 +64,30 @@ Respond with JSON:
   "noise_signals": ["sig_id_1"],
   "cross_kpi_connections": [
     {"description": "how KPIs relate via shared mechanism", "kpi_ids": ["3", "5"]}
+  ],
+  "composition_shifts": [
+    {"kpi_id": "11", "description": "which sectors gained or lost share and why"}
   ]
 }
 
-EXAMPLE — well-formed theme for an oil-exporting economy:
+EXAMPLE 1 — well-formed theme (generic — adapt to actual country context):
+{
+  "title": "Policy-Driven Structural Shift in Growth Composition",
+  "thesis": "Government reform programme is redirecting growth from the traditional \
+dominant sector toward emerging sectors, creating divergent sub-aggregate performance.",
+  "causal_chains": [
+    {
+      "trigger": "[Named policy/programme] implemented in [year]",
+      "mechanism": "[How the policy transmits to economic activity — name the channel]",
+      "kpi_impact": "[Specific KPI movement with numbers from the signals]",
+      "structural_or_cyclical": "structural",
+      "signal_ids": ["sig_X"]
+    }
+  ],
+  "key_drivers": ["[Named policy 1]", "[Named structural force 2]"]
+}
+
+EXAMPLE 2 — well-formed theme for an oil-exporting economy:
 {
   "title": "Oil GDP Drag vs Non-Oil Acceleration",
   "thesis": "OPEC+ production discipline is dragging headline growth while diversification \
@@ -76,19 +99,30 @@ capex structurally lifts non-oil sectors, creating a two-speed economy.",
 series) — this is a supply constraint, not a price effect",
       "kpi_impact": "Real GDP growth slowed to 0.8% in 2023 despite non-oil GDP accelerating \
 above 4%",
+      "structural_or_cyclical": "cyclical",
       "signal_ids": ["sig_3", "sig_7"]
-    },
-    {
-      "trigger": "Vision 2030 giga-project capex entering execution phase (~$100B committed \
-across NEOM, The Line, Red Sea Global)",
-      "mechanism": "Construction and services sectors absorbed project spending, lifting \
-non-oil GDP independently of hydrocarbon cycles",
-      "kpi_impact": "Non-oil GDP sustained 4%+ growth providing structural floor beneath \
-headline GDP",
-      "signal_ids": ["sig_7"]
     }
   ],
   "key_drivers": ["OPEC+ production policy", "Vision 2030 giga-project execution"]
+}
+
+EXAMPLE 3 — well-formed theme for an advanced economy:
+{
+  "title": "Monetary Tightening Cycle and Demand Cooling",
+  "thesis": "Central bank rate hikes transmitted through mortgage and credit channels to \
+compress household demand, pulling inflation down but exposing labour market fragility.",
+  "causal_chains": [
+    {
+      "trigger": "Central bank raised policy rate by 525bp between 2022 and 2024",
+      "mechanism": "Higher borrowing costs reduced mortgage origination and consumer credit, \
+contracting interest-sensitive demand components",
+      "kpi_impact": "Private consumption growth slowed from 4.2% to 1.1% while CPI inflation \
+eased from 9.1% to 2.5%",
+      "structural_or_cyclical": "cyclical",
+      "signal_ids": ["sig_5", "sig_8"]
+    }
+  ],
+  "key_drivers": ["Monetary policy tightening", "Mortgage rate pass-through"]
 }
 
 Return ONLY the JSON object."""

@@ -16,9 +16,8 @@ class KpiScore:
     reasons: list[str]
 
 
-# Per-KPI "boring" thresholds — CAGR magnitudes below these are unremarkable
 _BORING_CAGR: dict[str, float] = {
-    "9": 2.0,   # population — < 2% CAGR is normal
+    "9": 0.5,   # population — any direction change >0.5% or decline is notable
     "5": 1.0,   # unemployment — < 1pp change is noise
     "6": 3.0,   # consumption — steady single-digit growth is expected
 }
@@ -78,9 +77,28 @@ def score_kpi(kpi_id: str, kpi_facts: dict[str, Any]) -> KpiScore:
             score += 1.5
             reasons.append(f"latest period {change_pct:+.1f}%")
 
-    # GDP-related KPIs get a base relevance boost — they're almost always notable
-    if kpi_id in ("1", "2", "3"):
+    if kpi_id in ("1", "2", "3", "11"):
         score += 1.0
+
+    if kpi_id == "5":
+        for sf in series_facts:
+            if sf.get("note"):
+                continue
+            latest = sf.get("latest", {}).get("value")
+            if latest is not None and (latest > 8.0 or latest < 3.0):
+                score += 1.5
+                reasons.append(f"level {latest:.1f}% notable")
+                break
+
+    if kpi_id == "9":
+        for sf in series_facts:
+            if sf.get("note"):
+                continue
+            cagr_info = sf.get("cagr")
+            if cagr_info and cagr_info["cagr_pct"] < 0:
+                score += 3.0
+                reasons.append("population decline")
+                break
 
     notable = score >= _NOTABLE_THRESHOLD
     return KpiScore(

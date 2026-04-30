@@ -60,7 +60,7 @@ def rank_signals(
     return kept
 
 _BORING_CAGR: dict[str, float] = {
-    "9": 2.0,
+    "9": 0.5,
     "5": 1.0,
     "6": 3.0,
 }
@@ -246,5 +246,98 @@ def extract_signals(kpi_results: list[dict[str, Any]]) -> list[Signal]:
                         magnitude_pct=round(pct, 2),
                         description=desc,
                     ))
+
+    # ── Composition, divergence, net-flow, and period-highlight signals ──
+    for kpi_facts in derived:
+        kid = str(kpi_facts["kpi_id"])
+        kname = kpi_facts.get("kpi_name", f"KPI {kid}")
+        h = _lens_hint(kid)
+        first_country = ""
+        for sf in kpi_facts.get("series_facts", []):
+            if sf.get("country"):
+                first_country = sf["country"]
+                break
+
+        composition = kpi_facts.get("composition", [])
+        shift_summary = next(
+            (c for c in composition if c.get("type") == "share_shift_summary"), None,
+        )
+        if shift_summary:
+            for ind, pp in shift_summary.get("shifts_pp", {}).items():
+                if abs(pp) < 3.0:
+                    continue
+                direction = "gained" if pp > 0 else "lost"
+                desc = (
+                    f"{ind} {direction} {abs(pp):.1f}pp share of {kname} "
+                    f"({_year(shift_summary['from_date'])}–{_year(shift_summary['to_date'])})"
+                )
+                if h:
+                    desc += f" [{h}]"
+                signals.append(Signal(
+                    kpi_id=kid, kpi_name=kname, country=first_country,
+                    signal_type="share_shift",
+                    from_date=shift_summary["from_date"],
+                    to_date=shift_summary["to_date"],
+                    from_value=0, to_value=pp,
+                    magnitude_pct=round(abs(pp), 2),
+                    description=desc,
+                ))
+
+        growth_gap = kpi_facts.get("growth_gap", [])
+        if growth_gap:
+            max_gap = max(growth_gap, key=lambda g: abs(g.get("gap_pp", 0)))
+            gap_pp = max_gap.get("gap_pp", 0)
+            if abs(gap_pp) >= 5.0:
+                faster = max_gap.get("faster", "")
+                desc = (
+                    f"{kname}: growth divergence of {abs(gap_pp):.1f}pp — "
+                    f"{faster} outpaced in {_year(max_gap['date'])}"
+                )
+                if h:
+                    desc += f" [{h}]"
+                signals.append(Signal(
+                    kpi_id=kid, kpi_name=kname, country=first_country,
+                    signal_type="growth_divergence",
+                    from_date=growth_gap[0]["date"],
+                    to_date=max_gap["date"],
+                    from_value=0, to_value=gap_pp,
+                    magnitude_pct=round(abs(gap_pp), 2),
+                    description=desc,
+                ))
+
+        net_flow = kpi_facts.get("net_flow", [])
+        if len(net_flow) >= 2:
+            for i in range(1, len(net_flow)):
+                prev_dir = net_flow[i - 1].get("direction", "")
+                curr_dir = net_flow[i].get("direction", "")
+                if prev_dir and curr_dir and prev_dir != curr_dir:
+                    desc = (
+                        f"{kname}: net flow reversed from {prev_dir.replace('_', ' ')} "
+                        f"to {curr_dir.replace('_', ' ')} in {_year(net_flow[i]['date'])}"
+                    )
+                    if h:
+                        desc += f" [{h}]"
+                    signals.append(Signal(
+                        kpi_id=kid, kpi_name=kname, country=first_country,
+                        signal_type="net_flow_reversal",
+                        from_date=net_flow[i - 1]["date"],
+                        to_date=net_flow[i]["date"],
+                        from_value=net_flow[i - 1]["net"],
+                        to_value=net_flow[i]["net"],
+                        magnitude_pct=round(abs(net_flow[i]["net"] - net_flow[i - 1]["net"]), 2),
+                        description=desc,
+                    ))
+                    break
+
+    if signals:
+        best = max(signals, key=lambda s: abs(s.magnitude_pct))
+        signals.append(Signal(
+            kpi_id=best.kpi_id, kpi_name=best.kpi_name, country=best.country,
+            signal_type="period_highlight",
+            from_date=best.from_date, to_date=best.to_date,
+            from_value=best.from_value, to_value=best.to_value,
+            magnitude_pct=best.magnitude_pct,
+            description=f"Period highlight: {best.description}",
+        ))
 
     return signals

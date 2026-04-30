@@ -122,6 +122,7 @@ function BriefDocument({
                       fdiFlowMode={fdiFlowMode}
                       onFdiFlowModeChange={onFdiFlowModeChange}
                       onFdiBenchmarkYearChange={onFdiBenchmarkYearChange}
+                      exhibitLabel={child.exhibit_label || null}
                       compact
                     />
                   )) : (

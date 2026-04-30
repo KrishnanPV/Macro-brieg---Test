@@ -133,6 +133,78 @@ def _ensure_chart_blocks(
     return blocks
 
 
+_KPI_SECTION_ORDER = {
+    "3": 1, "2": 1, "11": 1, "1": 1,
+    "4": 2, "8": 2,
+    "7": 3,
+    "5": 4, "6": 4,
+    "9": 5,
+}
+
+_KPI_DISPLAY_ORDER: dict[str, int] = {
+    "3": 0, "2": 1, "11": 2, "1": 3,
+    "4": 0, "8": 1,
+    "7": 0,
+    "5": 0, "6": 1,
+    "9": 0,
+}
+
+
+def _compute_exhibit_map(notable_kpi_ids: list[str]) -> dict[str, str]:
+    """Pre-compute deterministic exhibit labels (e.g. '1A', '2A') from notable KPIs."""
+    section_kpis: dict[int, list[str]] = {}
+    for kid in notable_kpi_ids:
+        sec = _KPI_SECTION_ORDER.get(kid)
+        if sec:
+            section_kpis.setdefault(sec, []).append(kid)
+    exhibit_map: dict[str, str] = {}
+    for sec in sorted(section_kpis):
+        kpis = sorted(section_kpis[sec], key=lambda k: _KPI_DISPLAY_ORDER.get(k, 99))
+        for i, kid in enumerate(kpis):
+            letter = chr(ord("A") + i)
+            exhibit_map[kid] = f"{sec}{letter}"
+    return exhibit_map
+
+
+def _assign_exhibit_labels(blocks: list[dict[str, Any]], exhibit_map: dict[str, str]) -> None:
+    """Attach exhibit_label to each chart_ref block in-place."""
+    for block in blocks:
+        if block.get("type") != "section":
+            continue
+        for child in block.get("children") or []:
+            if child.get("type") == "chart_ref":
+                kid = str(child.get("kpi_id", ""))
+                label = exhibit_map.get(kid)
+                if label:
+                    child["exhibit_label"] = label
+
+
+def _inject_oil_gdp_split(blocks: list[dict[str, Any]], is_gcc: bool, exhibit_map: dict[str, str]) -> None:
+    """For GCC countries, insert a '2-oil' chart_ref after KPI 2 in the growth section."""
+    if not is_gcc:
+        return
+    for block in blocks:
+        if block.get("type") != "section":
+            continue
+        children = block.get("children") or []
+        insert_after = None
+        for i, child in enumerate(children):
+            if child.get("type") == "chart_ref" and str(child.get("kpi_id")) == "2":
+                insert_after = i
+                break
+        if insert_after is not None:
+            oil_label = None
+            if "2" in exhibit_map:
+                base_sec = exhibit_map["2"][0]
+                existing_in_sec = sum(1 for c in children if c.get("type") == "chart_ref")
+                oil_label = f"{base_sec}{chr(ord('A') + existing_in_sec)}"
+            oil_chart = {"type": "chart_ref", "kpi_id": "2-oil"}
+            if oil_label:
+                oil_chart["exhibit_label"] = oil_label
+            children.insert(insert_after + 1, oil_chart)
+            break
+
+
 def run_pipeline(
     req: CountryBriefGenerateRequest,
     *,
@@ -332,47 +404,76 @@ def run_pipeline(
     )
 
     interpretation_json = json.dumps(signal_interpretation, indent=2, default=str)
+
+    period_highlight = ""
+    if isinstance(signal_interpretation, dict):
+        period_highlight = signal_interpretation.get("period_highlight", "")
+
     injection = (
         "SIGNAL INTERPRETATION (from analysis agent):\n"
         f"```json\n{interpretation_json}\n```\n\n"
+    )
+
+    if period_highlight:
+        injection += (
+            f"PERIOD HIGHLIGHT (use this as the governing thought for the executive summary):\n"
+            f"{period_highlight}\n\n"
+        )
+
+    injection += (
         "HOW TO USE THIS INTERPRETATION:\n"
-        "Each theme contains a governing thesis and causal_chains:\n"
-        "- 'trigger' = the event/policy/force\n"
-        "- 'mechanism' = the transmission channel\n"
-        "- 'kpi_impact' = the data confirmation\n"
-        "- Transform each causal_chain into at least one bullet.\n\n"
-        "THEME-TO-SECTION MAPPING:\n"
-        "- GDP, growth, output, diversification -> [SECTION:Economic Performance & Growth]\n"
-        "- FDI, debt, capital flows, investment -> [SECTION:Investment & External Position]\n"
-        "- Inflation, employment, consumption -> [SECTION:Prices, Employment & Domestic Demand]\n"
-        "- Population, labor structure -> [SECTION:Demographics & Structural Factors]\n"
-        "- Cross-cutting themes -> [EXEC_SUMMARY] and [OUTLOOK]\n\n"
-        "Ignore noise_signals. Use cross_kpi_connections to synthesize."
+        "Each causal_chain has a trigger, mechanism, and kpi_impact. "
+        "Translate each into a natural prose bullet — name the trigger, explain the channel, "
+        "cite the data outcome. Do NOT use arrow symbols or template notation in your prose. "
+        "Ignore noise_signals. Use cross_kpi_connections to synthesize.\n\n"
     )
 
     if deep_analysis and articles_flat:
         injection += (
-            "\n\nNEWS-ANCHORED INSIGHT RULE (MANDATORY):\n"
-            "The NEWS_CONTEXT articles are your PRIMARY source of real-world grounding. "
-            "Every bullet in every section MUST be anchored in a specific news article.\n\n"
-            "HOW TO BUILD A NEWS-ANCHORED BULLET:\n"
-            "1. Start from a NEWS article's fact (a policy, event, decision, report)\n"
-            "2. Connect it to the DATA (the KPI movement it explains)\n"
-            "3. Explain the MECHANISM (how the event transmits to the data)\n"
-            "4. Append [src:N] at the end (where N is the article's \"n\" value)\n\n"
-            "EXAMPLE of a good news-anchored bullet:\n"
-            "- OPEC+ phased out 1 mbpd of voluntary production cuts between October 2024 "
-            "and September 2025, enabling oil GDP to recover and lifting headline growth "
-            "to **4.5%** — reversing the 2023 contraction that followed the initial "
-            "cuts [src:10]\n\n"
-            "CITATION DENSITY: Aim for [src:N] on EVERY bullet. Only omit for pure "
-            "mathematical observations (e.g. CAGR calculations from raw data). "
-            "Multiple sources per bullet are encouraged: [src:1][src:4].\n\n"
-            "ANTI-PATTERN — do NOT write bullets like this:\n"
-            "- 'Growth accelerated driven by diversification efforts and structural reforms.'\n"
-            "This is vague text with no news anchor. Instead, NAME the specific reform, "
-            "cite the article that reported it, and explain the transmission channel."
+            "NEWS CONTEXT:\n"
+            "Use 2-3 news [src:N] citations across the ENTIRE brief where a named policy, "
+            "event, or decision validates a structural claim. Do not force citations into "
+            "every section.\n\n"
         )
+
+    exhibit_map = _compute_exhibit_map(notable_ids)
+    if exhibit_map:
+        exhibit_lines = ", ".join(f"KPI {k} = ({v})" for k, v in sorted(exhibit_map.items()))
+        injection += (
+            f"EXHIBIT MAP — cite these labels when referencing chart data:\n"
+            f"{exhibit_lines}\n"
+            "When stating a number from a chart, append the exhibit label in parentheses: "
+            "e.g. 'GDP grew 3.2% (1A)'. Do NOT write 'Exhibit' — just the code.\n\n"
+        )
+
+    injection += (
+        "REMINDER — MANDATORY RULES:\n"
+        "1. Produce exactly these 5 sections: Economic Performance & Growth, "
+        "Investment & External Position, Inflation & Monetary Conditions, "
+        "Labour Market & Domestic Demand, Demographics & Structural Factors.\n"
+        "2. NEVER merge sections 3 and 4.\n"
+        "3. TOP-DOWN per section: Bullet 1 = GOVERNING INSIGHT — bold the ENTIRE "
+        "first sentence (structural takeaway), then un-bolded data with exhibit citations. "
+        "Bullet 2 = composition/drivers with sub-bullets (indented '  - '). "
+        "Bullet 3 = volatility ONLY if genuine reversal (skip if smooth). "
+        "Bullet 4 = forward projection.\n"
+        "4. Max 4-5 top-level bullets per section. Sub-bullets do not count.\n"
+        "5. Use annual time references. No quarterly notation.\n"
+        "6. Place each [CHART:kpi_id] only ONCE in the entire brief.\n"
+        "7. No fluff, no bridging filler, no restating previous bullets.\n"
+        "8. State start and end values. Do NOT narrate year-by-year. Only highlight an "
+        "intermediate year if there was a drastic reversal.\n"
+        "9. When aggregate GDP growth changes, state whether oil or non-oil GDP drove it. "
+        "For GCC, connect oil GDP to oil price movements. Note: GDP is real, oil prices "
+        "are nominal — flat oil GDP with rising prices reflects volume constraints.\n"
+        "10. Decompose net FDI changes: state whether driven by inflow growth, outflow "
+        "moderation, or both.\n"
+        "11. When external debt as % of GDP changes, decompose numerator vs denominator.\n"
+        "12. For Investment section: include one bullet benchmarking the country's FDI "
+        "against peers from FDI_BENCHMARK_CONTEXT, if available.\n"
+        "13. BOLDING: Bold ONLY the first sentence of each section's Bullet 1. Do NOT "
+        "bold numbers. Maximum 1-2 structural phrases bolded across remaining bullets."
+    )
 
     messages.append({"role": "user", "content": injection})
 
@@ -387,6 +488,8 @@ def run_pipeline(
     blocks = parse_brief_blocks(full_text)
     fallback_chart_ids = [kid for kid in available_ids if kid in ids_with_data]
     blocks = _ensure_chart_blocks(blocks, preferred_chart_ids=fallback_chart_ids)
+    _assign_exhibit_labels(blocks, exhibit_map)
+    _inject_oil_gdp_split(blocks, req.country.upper() in _GCC_CODES, exhibit_map)
     computed_metrics = compute_ribbon_metrics(derived_facts)
     if computed_metrics:
         blocks = [b for b in blocks if b.get("type") != "metrics_ribbon"]

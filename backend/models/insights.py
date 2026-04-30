@@ -22,6 +22,10 @@ class Signal(BaseModel):
         "cagr_notable",
         "outsized_period_change",
         "sign_reversal",
+        "share_shift",
+        "growth_divergence",
+        "period_highlight",
+        "net_flow_reversal",
     ]
     from_date: str
     to_date: str

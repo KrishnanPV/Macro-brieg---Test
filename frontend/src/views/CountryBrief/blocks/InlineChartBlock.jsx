@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import {
   ComposedChart, Area, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, ReferenceArea,
+  ResponsiveContainer, ReferenceArea, ReferenceLine,
 } from 'recharts'
 import { Copy, FileSpreadsheet, TrendingUp, X } from 'lucide-react'
 import ChartFrequencyToggle from '../../../components/ui/ChartFrequencyToggle'
@@ -75,10 +75,16 @@ function CustomTooltip({ active, payload, label, dateFormatter }) {
 const KPI_CHART_DEFAULTS = {
   '3':  { vizMode: 'line', freq: 'Q' },
   '2':  { vizMode: 'bar',  freq: 'A' },
+  '2-oil': { vizMode: 'line', freq: 'A' },
   '11': { vizMode: 'bar',  freq: 'A' },
   '5':  { vizMode: 'line', freq: 'Q' },
 }
 const DEFAULT_CHART = { vizMode: 'line', freq: 'Q' }
+
+const NET_FDI_KEY = '__net_fdi__'
+const NET_FDI_COLOR = '#16a34a'
+const INWARD_RE = /inward/i
+const OUTWARD_RE = /outward/i
 
 function buildRowsFromSeries(seriesList, topUnit) {
   const dateMap = new Map()
@@ -276,9 +282,12 @@ export default function InlineChartBlock({
   fdiFlowMode = 'chart',
   onFdiFlowModeChange,
   onFdiBenchmarkYearChange,
+  exhibitLabel = null,
 }) {
-  const isFdiKpi =
-    String(kpiId) === '4'
+  const isOilGdpSplit = String(kpiId) === '2-oil'
+  const lookupId = isOilGdpSplit ? '2' : String(kpiId)
+  const isFdiKpi = lookupId === '4'
+  const isInflationKpi = lookupId === '7'
   const hasFdiBenchmark =
     Array.isArray(fdiBenchmark?.countries) &&
     fdiBenchmark.countries.length > 0
@@ -287,7 +296,7 @@ export default function InlineChartBlock({
     hasFdiBenchmark &&
     fdiFlowMode !== 'chart'
 
-  const kpiResult = kpiDataCache.find(r => String(r.kpi_id) === String(kpiId))
+  const kpiResult = kpiDataCache.find(r => String(r.kpi_id) === lookupId)
   const defaults = KPI_CHART_DEFAULTS[String(kpiId)] || DEFAULT_CHART
   const hasDualFreq = !!(kpiResult?.series_annual?.length)
 
@@ -303,18 +312,28 @@ export default function InlineChartBlock({
 
   const isQuarterly = freq === 'Q' && kpiResult?.frequency === 'Q'
 
-  const isOilGdpKpi = String(kpiId) === '2'
-  const oilOverlay = isOilGdpKpi ? kpiResult?.oil_price_overlay : null
+  const oilOverlay = isOilGdpSplit ? kpiResult?.oil_price_overlay : null
   const hasOilOverlay = !!(oilOverlay?.points?.length)
 
   const { seriesKeys, rows, kpiName, unitLabel } = useMemo(() => {
     if (!kpiResult || !activeSeries?.length) {
       return { seriesKeys: [], rows: [], kpiName: '', unitLabel: '' }
     }
-    const { seriesKeys: sk, rows: r } = buildRowsFromSeries(activeSeries, kpiResult.unit)
-    const unit = activeSeries[0]?.unit || kpiResult.unit || ''
-    return { seriesKeys: sk, rows: r, kpiName: kpiResult.kpi_name, unitLabel: unit }
-  }, [kpiResult, activeSeries])
+    let filtered = activeSeries
+    if (isOilGdpSplit) {
+      filtered = activeSeries.filter(s =>
+        INWARD_RE.test(s.indicator) || /\boil\b/i.test(s.indicator) && !/non.oil/i.test(s.indicator)
+      )
+      if (!filtered.length) {
+        filtered = activeSeries.filter(s => !/non.oil/i.test(s.indicator))
+      }
+      if (!filtered.length) filtered = activeSeries.slice(0, 1)
+    }
+    const { seriesKeys: sk, rows: r } = buildRowsFromSeries(filtered, kpiResult.unit)
+    const unit = filtered[0]?.unit || kpiResult.unit || ''
+    const name = isOilGdpSplit ? 'GDP - Real (Oil GDP)' : kpiResult.kpi_name
+    return { seriesKeys: sk, rows: r, kpiName: name, unitLabel: unit }
+  }, [kpiResult, activeSeries, isOilGdpSplit])
 
   const isPercentageUnit = unitLabel.trim().startsWith('%')
 
@@ -330,19 +349,35 @@ export default function InlineChartBlock({
     return map.size ? map : null
   }, [oilOverlay, hasOilOverlay])
 
+  const fdiInwardKey = isFdiKpi ? seriesKeys.find(sk => INWARD_RE.test(sk.key))?.key : null
+  const fdiOutwardKey = isFdiKpi ? seriesKeys.find(sk => OUTWARD_RE.test(sk.key))?.key : null
+
   const chartRows = useMemo(() => {
-    if (!oilByYear) return rows
-    const sortedOilYears = [...oilByYear.keys()].sort((a, b) => a - b)
-    const lastOilYear = sortedOilYears[sortedOilYears.length - 1]
-    const lastOilVal = oilByYear.get(lastOilYear)
-    return rows.map(r => {
-      const row = { ...r }
-      const y = new Date(r.date).getFullYear()
-      const exact = oilByYear.get(y)
-      row[OIL_OVERLAY_KEY] = exact != null ? exact : (y > lastOilYear ? lastOilVal : null)
-      return row
-    })
-  }, [rows, oilByYear])
+    let result = rows
+    if (oilByYear) {
+      const sortedOilYears = [...oilByYear.keys()].sort((a, b) => a - b)
+      const lastOilYear = sortedOilYears[sortedOilYears.length - 1]
+      const lastOilVal = oilByYear.get(lastOilYear)
+      result = result.map(r => {
+        const row = { ...r }
+        const y = new Date(r.date).getFullYear()
+        const exact = oilByYear.get(y)
+        row[OIL_OVERLAY_KEY] = exact != null ? exact : (y > lastOilYear ? lastOilVal : null)
+        return row
+      })
+    }
+    if (isFdiKpi && fdiInwardKey && fdiOutwardKey) {
+      result = result.map(r => {
+        const row = { ...r }
+        const inVal = r[fdiInwardKey] ?? 0
+        const outVal = r[fdiOutwardKey] ?? 0
+        row[NET_FDI_KEY] = inVal - outVal
+        row['__fdi_outward_neg__'] = outVal != null ? -Math.abs(outVal) : null
+        return row
+      })
+    }
+    return result
+  }, [rows, oilByYear, isFdiKpi, fdiInwardKey, fdiOutwardKey])
 
   const cagrHighlight = useMemo(() => {
     if (!cagrResult) return null
@@ -351,6 +386,25 @@ export default function InlineChartBlock({
     if (!startRows.length || !endRows.length) return null
     return { x1: startRows[0].date, x2: endRows[endRows.length - 1].date }
   }, [rows, cagrResult])
+
+  const keyPointIndices = useMemo(() => {
+    if (!chartRows.length || !seriesKeys.length) return new Set()
+    const sk = seriesKeys[0].key
+    const indices = new Set()
+    indices.add(0)
+    indices.add(chartRows.length - 1)
+    let maxIdx = 0, minIdx = 0, maxVal = -Infinity, minVal = Infinity
+    chartRows.forEach((r, i) => {
+      const v = r[sk]
+      if (v != null) {
+        if (v > maxVal) { maxVal = v; maxIdx = i }
+        if (v < minVal) { minVal = v; minIdx = i }
+      }
+    })
+    if (maxIdx !== 0 && maxIdx !== chartRows.length - 1) indices.add(maxIdx)
+    if (minIdx !== 0 && minIdx !== chartRows.length - 1) indices.add(minIdx)
+    return indices
+  }, [chartRows, seriesKeys])
 
   if (showFdiBenchmark) {
     return (
@@ -413,9 +467,16 @@ export default function InlineChartBlock({
       }>
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="min-w-0">
-            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-              {kpiName}
-            </p>
+            <div className="flex items-center gap-2">
+              {exhibitLabel && (
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 text-[9px] font-bold text-slate-500 tracking-wide uppercase shrink-0">
+                  {exhibitLabel}
+                </span>
+              )}
+              <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                {kpiName}
+              </p>
+            </div>
             {unitLabel && (
               <p className="text-[10px] text-slate-400 leading-tight mt-0.5">{unitLabel}</p>
             )}
@@ -532,19 +593,66 @@ export default function InlineChartBlock({
                     style: { fontSize: 10, fill: OIL_OVERLAY_COLOR, fontFamily: 'inherit' }, dx: 4 }} />
               )}
               <Tooltip content={<CustomTooltip dateFormatter={tooltipFmt} />} />
+              {isInflationKpi && (
+                <>
+                  <ReferenceArea y1={2} y2={999} yAxisId="left" fill="#fef2f2" fillOpacity={0.5} ifOverflow="hidden" />
+                  <ReferenceArea y1={-999} y2={2} yAxisId="left" fill="#f0fdf4" fillOpacity={0.4} ifOverflow="hidden" />
+                  <ReferenceLine y={2} yAxisId="left" stroke="#94a3b8" strokeDasharray="4 3"
+                    label={{ value: '2%', position: 'left', fontSize: 9, fill: '#64748b' }} />
+                </>
+              )}
               {activeVizMode === 'bar'
-                ? seriesKeys.map(sk => (
-                    <Bar key={sk.key} dataKey={sk.key} fill={sk.color} stackId="a" yAxisId="left" />
-                  ))
-                : seriesKeys.map(sk => (
-                    <Area key={sk.key} type="monotone" dataKey={sk.key} stroke={sk.color}
-                      fill={`url(#brief-grad-${kpiId}-${sk.key.replace(/\W/g, '_')})`}
-                      strokeWidth={2} dot={false} activeDot={{ r: 3, strokeWidth: 2, fill: '#fff' }}
-                      yAxisId="left" />
-                  ))
+                ? (isFdiKpi && fdiInwardKey && fdiOutwardKey
+                  ? <>
+                      <Bar dataKey={fdiInwardKey} fill={seriesKeys.find(sk => sk.key === fdiInwardKey)?.color || SERIES_COLORS[0]} yAxisId="left" name={fdiInwardKey}
+                        label={(props) => {
+                          if (!keyPointIndices.has(props.index)) return null
+                          return <text x={props.x + props.width / 2} y={props.y - 4} textAnchor="middle" fontSize={8} fontWeight={600} fill="#334155">{formatAbbrevNumber(props.value)}</text>
+                        }} />
+                      <Bar dataKey="__fdi_outward_neg__" fill={seriesKeys.find(sk => sk.key === fdiOutwardKey)?.color || SERIES_COLORS[1]} yAxisId="left" name={fdiOutwardKey} />
+                      <Line type="linear" dataKey={NET_FDI_KEY} yAxisId="left" stroke={NET_FDI_COLOR}
+                        strokeWidth={2} dot={false} name="Net FDI" />
+                    </>
+                  : seriesKeys.map((sk, skIdx) => (
+                      <Bar key={sk.key} dataKey={sk.key} fill={sk.color} stackId="a" yAxisId="left"
+                        label={skIdx === 0 ? (props) => {
+                          if (!keyPointIndices.has(props.index)) return null
+                          return <text x={props.x + props.width / 2} y={props.y - 4} textAnchor="middle" fontSize={8} fontWeight={600} fill="#334155">{formatAbbrevNumber(props.value)}</text>
+                        } : false} />
+                    ))
+                )
+                : <>
+                    {seriesKeys.map((sk, skIdx) => (
+                      <Area key={sk.key} type="linear" dataKey={sk.key} stroke={sk.color}
+                        fill={`url(#brief-grad-${kpiId}-${sk.key.replace(/\W/g, '_')})`}
+                        strokeWidth={2} yAxisId="left"
+                        dot={(props) => {
+                          if (!keyPointIndices.has(props.index)) return null
+                          const v = props.payload[sk.key]
+                          if (v == null) return null
+                          return (
+                            <g key={props.index}>
+                              <circle cx={props.cx} cy={props.cy} r={3} fill="#fff" stroke={sk.color} strokeWidth={2} />
+                              {skIdx === 0 && (
+                                <text x={props.cx} y={props.cy - 8} textAnchor="middle"
+                                  fontSize={9} fontWeight={600} fill={sk.color}>
+                                  {formatAbbrevNumber(v)}
+                                </text>
+                              )}
+                            </g>
+                          )
+                        }}
+                        activeDot={{ r: 3, strokeWidth: 2, fill: '#fff' }}
+                      />
+                    ))}
+                    {isFdiKpi && fdiInwardKey && fdiOutwardKey && (
+                      <Line type="linear" dataKey={NET_FDI_KEY} yAxisId="left" stroke={NET_FDI_COLOR}
+                        strokeWidth={2} strokeDasharray="5 3" dot={false} name="Net FDI" />
+                    )}
+                  </>
               }
               {hasOilOverlay && (
-                <Line dataKey={OIL_OVERLAY_KEY} yAxisId="right" stroke={OIL_OVERLAY_COLOR}
+                <Line type="linear" dataKey={OIL_OVERLAY_KEY} yAxisId="right" stroke={OIL_OVERLAY_COLOR}
                   strokeWidth={2} strokeDasharray="4 2" dot={false} connectNulls
                   name={oilOverlay.indicator || 'Brent (LCU)'} />
               )}
@@ -556,7 +664,7 @@ export default function InlineChartBlock({
             </ComposedChart>
           </ResponsiveContainer>
         </div>
-        {(seriesKeys.length > 1 || hasOilOverlay) && (
+        {(seriesKeys.length > 1 || hasOilOverlay || (isFdiKpi && fdiInwardKey)) && (
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 pt-1 text-[10px]">
             {seriesKeys.map(sk => (
               <div key={sk.key} className="flex items-center gap-1.5">
@@ -564,10 +672,16 @@ export default function InlineChartBlock({
                 <span className="text-slate-500">{sk.key}</span>
               </div>
             ))}
+            {isFdiKpi && fdiInwardKey && (
+              <div className="flex items-center gap-1.5">
+                <span className="w-3 border-t-2 border-dashed" style={{ borderColor: NET_FDI_COLOR }} />
+                <span className="text-slate-500">Net FDI</span>
+              </div>
+            )}
             {hasOilOverlay && (
               <div className="flex items-center gap-1.5">
                 <span className="w-3 border-t-2 border-dashed" style={{ borderColor: OIL_OVERLAY_COLOR }} />
-                <span className="text-slate-500">{oilOverlay.indicator || 'Brent (LCU)'}</span>
+                <span className="text-slate-500">{oilOverlay.indicator || 'Oil price (SAR)'}</span>
               </div>
             )}
           </div>

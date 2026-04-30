@@ -68,6 +68,7 @@ def _parse_metrics_ribbon(text: str) -> list[dict[str, str]]:
 
 def _split_narrative_and_charts(body: str) -> list[dict[str, Any]]:
     blocks: list[dict[str, Any]] = []
+    seen_chart_ids: set[str] = set()
     parts = _CHART_RE.split(body)
     for i, part in enumerate(parts):
         if i % 2 == 0:
@@ -75,7 +76,10 @@ def _split_narrative_and_charts(body: str) -> list[dict[str, Any]]:
             if text:
                 blocks.append({"type": "narrative", "content": text})
         else:
-            blocks.append({"type": "chart_ref", "kpi_id": part.strip()})
+            kpi_id = part.strip()
+            if kpi_id not in seen_chart_ids:
+                blocks.append({"type": "chart_ref", "kpi_id": kpi_id})
+                seen_chart_ids.add(kpi_id)
     return blocks
 
 
@@ -131,11 +135,20 @@ def parse_brief_blocks(raw_text: str) -> list[dict[str, Any]]:
     if m:
         blocks.append({"type": "executive_summary", "content": m.group(1).strip()})
 
+    global_seen_charts: set[str] = set()
     for m in _SECTION_RE.finditer(raw_text):
         title = m.group(1).strip()
         body = m.group(2).strip()
         sub_blocks = _reorder_section_charts(_split_narrative_and_charts(body))
-        blocks.append({"type": "section", "title": title, "children": sub_blocks})
+        deduped: list[dict[str, Any]] = []
+        for sb in sub_blocks:
+            if sb.get("type") == "chart_ref":
+                kid = sb.get("kpi_id", "")
+                if kid in global_seen_charts:
+                    continue
+                global_seen_charts.add(kid)
+            deduped.append(sb)
+        blocks.append({"type": "section", "title": title, "children": deduped})
 
     m = _OUTLOOK_RE.search(raw_text)
     if m:
