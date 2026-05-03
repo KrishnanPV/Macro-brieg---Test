@@ -26,6 +26,8 @@ Thumbs.db
 # Node / frontend build
 frontend/node_modules/
 frontend/dist/
+frontend-lab/node_modules/
+frontend-lab/dist/
 
 # Local databases (runtime)
 data/

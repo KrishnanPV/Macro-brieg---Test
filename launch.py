@@ -5,6 +5,7 @@ Stop with Ctrl+C (or SIGTERM): child processes are terminated cleanly.
 Run from the project root:
   python launch.py                  # main platform (frontend on :5173)
   python launch.py --debug          # enable test-report store/load buttons
+  python launch.py --lab            # lab UI (frontend-lab on :5174)
 """
 from __future__ import annotations
 
@@ -19,7 +20,8 @@ import urllib.error
 import urllib.request
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-FRONTEND = os.path.join(ROOT, "frontend")
+FRONTEND_MAIN = os.path.join(ROOT, "frontend")
+FRONTEND_LAB = os.path.join(ROOT, "frontend-lab")
 
 # No --reload: single uvicorn process so shutdown stays predictable.
 API_CMD = [
@@ -36,10 +38,10 @@ API_CMD = [
 ]
 
 
-def _npm_run_dev() -> list[str] | str:
+def _npm_run_dev(port: int) -> list[str] | str:
     if sys.platform == "win32":
-        return "npm run dev"
-    return ["npm", "run", "dev"]
+        return f"npm run dev -- --port {port}"
+    return ["npm", "run", "dev", "--", "--port", str(port)]
 
 
 def _wait_for_kpi_api(proc: subprocess.Popen, timeout_s: float = 90.0) -> None:
@@ -89,6 +91,11 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Enable test-report store/load buttons in the Country Brief UI.",
     )
+    p.add_argument(
+        "--lab",
+        action="store_true",
+        help="Launch lab frontend (frontend-lab) on port 5174.",
+    )
     return p.parse_args()
 
 
@@ -98,8 +105,11 @@ def main() -> None:
         os.environ["MACROBRIEF_DEBUG"] = "1"
     os.chdir(ROOT)
 
-    if not os.path.isdir(FRONTEND):
-        print(f"{FRONTEND}/ not found — run this script from the project root.", file=sys.stderr)
+    frontend_dir = FRONTEND_LAB if args.lab else FRONTEND_MAIN
+    frontend_port = 5174 if args.lab else 5173
+
+    if not os.path.isdir(frontend_dir):
+        print(f"{frontend_dir}/ not found — run this script from the project root.", file=sys.stderr)
         sys.exit(1)
 
     fe_shell = sys.platform == "win32"
@@ -148,14 +158,17 @@ def main() -> None:
         procs.append(api_proc)
         _wait_for_kpi_api(api_proc)
         print()
-        print("  >>> Use this same window when you test Country Brief.")
-        print("  >>> After you click Generate, look for:  Perplexity / news research")
+        if args.lab:
+            print("  >>> Lab mode enabled. Open the lab UI to inspect stage outputs.")
+        else:
+            print("  >>> Use this same window when you test Country Brief.")
+            print("  >>> After you click Generate, look for:  Perplexity / news research")
         print()
-        print("Starting Frontend (port 5173)…")
+        print(f"Starting Frontend (port {frontend_port})…")
         procs.append(
             subprocess.Popen(
-                _npm_run_dev(),
-                cwd=FRONTEND,
+                _npm_run_dev(frontend_port),
+                cwd=frontend_dir,
                 shell=fe_shell,
             )
         )

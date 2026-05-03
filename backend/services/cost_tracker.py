@@ -236,6 +236,36 @@ def record_usage(
     )
 
 
+def estimate_usage_cost(model: str, usage: Any) -> dict[str, Any]:
+    """Compute token and cost details for a usage payload without logging it."""
+    if usage is None:
+        return {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "input_cost": 0.0,
+            "output_cost": 0.0,
+            "total_cost": 0.0,
+        }
+
+    if isinstance(usage, dict):
+        in_tok = usage.get("prompt_tokens", 0) or 0
+        out_tok = usage.get("completion_tokens", 0) or 0
+    else:
+        in_tok = getattr(usage, "prompt_tokens", 0) or 0
+        out_tok = getattr(usage, "completion_tokens", 0) or 0
+
+    input_price, output_price = _lookup_pricing(model)
+    in_cost = in_tok * input_price / 1_000_000
+    out_cost = out_tok * output_price / 1_000_000
+    return {
+        "input_tokens": int(in_tok),
+        "output_tokens": int(out_tok),
+        "input_cost": float(in_cost),
+        "output_cost": float(out_cost),
+        "total_cost": float(in_cost + out_cost),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Query helpers (used by the dashboard)
 # ---------------------------------------------------------------------------

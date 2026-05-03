@@ -1,0 +1,428 @@
+:root {
+  color-scheme: light;
+  font-family: Inter, Segoe UI, Arial, sans-serif;
+  background: radial-gradient(circle at top, #21385f 0%, #eef3fb 48%);
+  color: #1c2f44;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.page {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.card {
+  background: #ffffff;
+  border: 1px solid #dbe4f3;
+  border-radius: 16px;
+  box-shadow: 0 10px 22px rgba(20, 40, 75, 0.08);
+}
+
+.hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  color: #fff;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: 34px;
+}
+
+.heroSub {
+  margin: 8px 0 0;
+  font-size: 15px;
+  opacity: 0.92;
+}
+
+.status {
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.status.running {
+  background: rgba(179, 255, 209, 0.2);
+  border-color: rgba(179, 255, 209, 0.4);
+}
+
+.controls {
+  padding: 14px;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #3d5270;
+}
+
+.controls label.kpi {
+  grid-column: span 2;
+}
+
+.controls select,
+.controls input {
+  border: 1px solid #bfd0e7;
+  border-radius: 10px;
+  background: #f9fbff;
+  font-size: 14px;
+  padding: 9px 10px;
+}
+
+.run {
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #1a56dc 0%, #244cb4 100%);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 10px 12px;
+}
+
+.run:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.subtitle {
+  font-size: 14px;
+  color: #344c6b;
+  padding: 10px 14px;
+}
+
+.error {
+  border: 1px solid #e3b3b3;
+  background: #fff1f1;
+  color: #8d1f1f;
+  border-radius: 12px;
+  padding: 10px;
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.tabs button {
+  border: 1px solid #cad6ea;
+  border-radius: 10px;
+  background: #fff;
+  color: #304767;
+  font-weight: 700;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.tabs button.active {
+  background: #e5edff;
+  border-color: #95afeb;
+}
+
+.pipelineLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(340px, 0.8fr);
+  gap: 14px;
+}
+
+.stageGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.stageCard {
+  background: #ffffff;
+  border: 1px solid #dce5f3;
+  border-radius: 14px;
+  padding: 12px;
+}
+
+.stageCard.pending {
+  opacity: 0.75;
+}
+
+.stageCard.done {
+  border-color: #9bc0ff;
+}
+
+.stageHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.stageHead h3 {
+  margin: 2px 0 0;
+  font-size: 16px;
+}
+
+.stageIndex {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #1f57d1;
+  background: #e8efff;
+}
+
+.costTag {
+  border-radius: 999px;
+  background: #e9f8ef;
+  border: 1px solid #bde6ca;
+  color: #1c6b3d;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 10px;
+}
+
+.stageBlurb {
+  margin: 6px 0 12px;
+  color: #5b7290;
+  font-size: 13px;
+}
+
+.stageBody ul {
+  margin: 8px 0 0 18px;
+}
+
+.stageBody li {
+  margin: 4px 0;
+}
+
+.miniCard {
+  border: 1px solid #e2e9f6;
+  border-radius: 10px;
+  padding: 10px;
+  background: #fbfdff;
+  margin-bottom: 8px;
+}
+
+.miniCard header {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.miniCard h4 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.miniCard p {
+  margin: 8px 0 0;
+  color: #3a506d;
+  font-size: 13px;
+}
+
+.confidence {
+  text-transform: capitalize;
+  color: #566f90;
+  font-size: 12px;
+}
+
+.chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip {
+  background: #eaf1ff;
+  border: 1px solid #ccd9f0;
+  color: #2a4872;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 10px;
+}
+
+.splitGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.summaryPane {
+  padding: 14px;
+}
+
+.summaryPane h3 {
+  margin: 0;
+}
+
+.summaryPane h4 {
+  margin: 14px 0 8px;
+}
+
+.metricRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  color: #365171;
+}
+
+.briefCard {
+  border: 1px solid #dde7f7;
+  border-radius: 12px;
+  background: #fcfdff;
+  padding: 12px;
+  max-height: 540px;
+  overflow: auto;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3 {
+  margin-top: 14px;
+  margin-bottom: 8px;
+}
+
+.markdown p {
+  margin: 8px 0;
+  line-height: 1.45;
+}
+
+.costsLayout {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.8fr) minmax(0, 1.2fr);
+  gap: 14px;
+}
+
+.runsPane,
+.costDetail {
+  padding: 14px;
+}
+
+.runsPane h3,
+.costDetail h3 {
+  margin-top: 0;
+}
+
+.runTable {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 640px;
+  overflow: auto;
+}
+
+.runRow {
+  border: 1px solid #dbe4f3;
+  border-radius: 10px;
+  background: #fff;
+  padding: 10px;
+  text-align: left;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.runRow.active {
+  border-color: #86a8eb;
+  background: #eef4ff;
+}
+
+.runRow p {
+  margin: 4px 0 0;
+}
+
+.runRowMeta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.costTable {
+  width: 100%;
+  margin-top: 10px;
+  border-collapse: collapse;
+}
+
+.costTable th,
+.costTable td {
+  border-bottom: 1px solid #e5ecf8;
+  text-align: left;
+  padding: 8px 6px;
+  font-size: 13px;
+}
+
+.costTable th {
+  color: #425a79;
+}
+
+.subtle {
+  color: #5e7695;
+  font-size: 13px;
+}
+
+.muted {
+  color: #67809f;
+  font-size: 12px;
+}
+
+@media (max-width: 1200px) {
+  .pipelineLayout,
+  .costsLayout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 940px) {
+  .page {
+    padding: 16px;
+  }
+
+  .controls {
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
+  }
+
+  .controls label.kpi {
+    grid-column: span 2;
+  }
+
+  .splitGrid {
+    grid-template-columns: 1fr;
+  }
+}
+

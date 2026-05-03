@@ -1,0 +1,43 @@
+{
+  "manifest_version": 1,
+  "prompt_bundle_version": "0.1.0",
+  "updated_at": "2026-05-03",
+  "models": {
+    "reasoning": "gpt-5.3-chat-latest",
+    "brief_writer": "gpt-4.1-mini",
+    "news_researcher": "sonar"
+  },
+  "prompts": [
+    {
+      "id": "system_base",
+      "file": "system_base.md",
+      "version": "0.1.0",
+      "used_by": ["hypotheses_generator", "insights_generator", "brief_writer"]
+    },
+    {
+      "id": "style_guide",
+      "file": "style_guide.md",
+      "version": "0.1.0",
+      "used_by": ["brief_writer"]
+    },
+    {
+      "id": "per_kpi_context",
+      "file": "per_kpi_context.md",
+      "version": "0.1.0",
+      "used_by": ["hypotheses_generator"]
+    },
+    {
+      "id": "reasoning_playbook",
+      "file": "reasoning_playbook.md",
+      "version": "0.1.0",
+      "used_by": ["insights_generator", "evaluator"]
+    },
+    {
+      "id": "causal_language_rules",
+      "file": "causal_language_rules.md",
+      "version": "0.1.0",
+      "used_by": ["insights_generator", "evaluator"]
+    }
+  ]
+}
+
