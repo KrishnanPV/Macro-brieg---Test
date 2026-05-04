@@ -7,7 +7,7 @@ Append-only log for lab prompt updates. Do not edit past entries; add a new entr
 - Added baseline system, style, KPI context, reasoning, and causal language prompt files.
 - Set model profile metadata in `manifest.yaml` for reproducible prompt+model snapshots.
 
-## [SB-002] 2026-05-04 — system_base.md (0.1.1)
+## [SB-001] 2026-05-04 — system_base.md (0.1.1)
 
 **Change**
 - First system prompt developed from scratch
