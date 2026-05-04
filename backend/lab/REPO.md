@@ -31,6 +31,7 @@ Purpose: quick file map for agents and developers working in `backend/lab`.
 ## Tests
 - `tests/test_prompt_manifest_integrity.py` - Verifies manifest references and workflow mapping validity.
 - `tests/test_prompt_bundle_snapshot.py` - Snapshot guard for prompt bundle hash/shape changes.
+- `tests/test_signal_extractor.py` - Verifies phase-based signal profiling across full periods.
 - `tests/fixtures/prompt_bundle_snapshot.json` - Expected prompt bundle snapshot fixture.
 
 ## Reasoning Distillation
