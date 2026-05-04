@@ -12,6 +12,7 @@ def run_step(
     country: str,
     kpi_name: str,
     insight_payload: dict[str, Any],
+    reasoning_model: str = REASONING_MODEL,
 ) -> dict[str, Any]:
     """Evaluate insight quality and provide one round of revision feedback."""
     playbook = load_prompt("reasoning_playbook.md")
@@ -34,7 +35,7 @@ def run_step(
         "Be specific and actionable in revision instructions."
     )
     parsed, call_meta = call_json_model(
-        model=REASONING_MODEL,
+        model=reasoning_model,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         caller="lab.evaluator",

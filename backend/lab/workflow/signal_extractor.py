@@ -116,7 +116,11 @@ def _deterministic_signals(kpi_payload: dict[str, Any]) -> list[dict[str, Any]]:
     return signals
 
 
-def run_step(kpi_payload: dict[str, Any]) -> dict[str, Any]:
+def run_step(
+    kpi_payload: dict[str, Any],
+    *,
+    reasoning_model: str = REASONING_MODEL,
+) -> dict[str, Any]:
     """Extract deterministic signals and filter to high-relevance ones."""
     raw_signals = _deterministic_signals(kpi_payload)
     if not raw_signals:
@@ -138,7 +142,7 @@ def run_step(kpi_payload: dict[str, Any]) -> dict[str, Any]:
         "Select up to 6 signals that are most relevant for hypothesis generation."
     )
     triage, call_meta = call_json_model(
-        model=REASONING_MODEL,
+        model=reasoning_model,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         caller="lab.signal_extractor",

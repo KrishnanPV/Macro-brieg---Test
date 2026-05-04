@@ -1,7 +1,7 @@
 """Pydantic contracts for lab endpoints."""
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -13,6 +13,9 @@ class LabGenerateRequest(BaseModel):
     kpi_id: str = Field(..., min_length=1)
     start_year: int = Field(2015, ge=1990, le=2100)
     end_year: int = Field(2026, ge=1990, le=2100)
+    generation_mode: Literal["deep", "light"] = "deep"
+    reasoning_model: str | None = Field(default=None, min_length=1)
+    brief_model: str | None = Field(default=None, min_length=1)
 
 
 class LabStreamEvent(BaseModel):

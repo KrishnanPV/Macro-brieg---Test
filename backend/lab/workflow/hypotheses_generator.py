@@ -15,6 +15,7 @@ def run_step(
     start_year: int,
     end_year: int,
     selected_signals: list[dict[str, Any]],
+    reasoning_model: str = REASONING_MODEL,
 ) -> dict[str, Any]:
     """Generate broad causal hypotheses for the selected KPI signals."""
     per_kpi_prompt = load_prompt("per_kpi_context.md")
@@ -38,7 +39,7 @@ def run_step(
         "Generate 3-6 hypotheses. Keep them specific enough for evidence checks."
     )
     parsed, call_meta = call_json_model(
-        model=REASONING_MODEL,
+        model=reasoning_model,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         caller="lab.hypotheses_generator",

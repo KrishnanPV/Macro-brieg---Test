@@ -7,6 +7,19 @@
     "brief_writer": "gpt-4.1-mini",
     "news_researcher": "sonar"
   },
+  "model_options": {
+    "reasoning": [
+      {"model": "gpt-5.3-chat-latest", "io_cost": [1.75, 14]},
+      {"model": "gpt-5.2-chat-latest", "io_cost": [1.75, 14]},
+      {"model": "gpt-4.1", "io_cost": [2, 8]},
+      {"model": "gpt-4.1-mini", "io_cost": [0.4, 1.6]}
+    ],
+    "brief_writer": [
+      {"model": "gpt-4.1-mini", "io_cost": [0.4, 1.6]},
+      {"model": "gpt-4.1", "io_cost": [2, 8]},
+      {"model": "gpt-5.3-chat-latest", "io_cost": [1.75, 14]}
+    ]
+  },
   "prompts": [
     {
       "id": "system_base",

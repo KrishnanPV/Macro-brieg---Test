@@ -6,7 +6,7 @@ const COUNTRY_OPTIONS = [
   'USA', 'GBR', 'DEU', 'FRA', 'JPN', 'CHN', 'IND', 'BRA',
 ]
 
-const STAGE_ORDER = [
+const STAGE_ORDER_DEEP = [
   { key: 'data_fetch', label: 'Data Fetch', blurb: 'Load KPI time-series and validate scope.' },
   { key: 'signal_extractor', label: 'Signal Extractor', blurb: 'Detect deterministic patterns and triage relevance.' },
   { key: 'hypotheses_generator', label: 'Hypotheses Generator', blurb: 'Build broad causal explanations for the KPI shifts.' },
@@ -17,7 +17,29 @@ const STAGE_ORDER = [
   { key: 'brief_writer', label: 'Brief Writer', blurb: 'Produce the final polished macro brief.' },
 ]
 
+const STAGE_ORDER_LIGHT = [
+  { key: 'data_fetch', label: 'Data Fetch', blurb: 'Load KPI time-series and validate scope.' },
+  { key: 'signal_extractor', label: 'Signal Extractor', blurb: 'Detect deterministic patterns and triage relevance.' },
+  { key: 'hypotheses_generator', label: 'Hypotheses Generator', blurb: 'Build broad causal explanations for the KPI shifts.' },
+  { key: 'news_researcher', label: 'News Researcher', blurb: 'Corroborate hypotheses against external evidence.' },
+  { key: 'insights_generator', label: 'Insights Generator (Light)', blurb: 'Produce an executive summary only for this KPI.' },
+  { key: 'brief_writer', label: 'Brief Writer (Light)', blurb: 'Constrain final output to executive summary format.' },
+]
+
 const RUN_HISTORY_KEY = 'macrobrief-lab-run-history-v1'
+const GENERATION_MODE_OPTIONS = ['deep', 'light']
+const DEFAULT_LAB_OPTIONS = {
+  generation_modes: GENERATION_MODE_OPTIONS,
+  models: {
+    reasoning: [],
+    brief_writer: [],
+  },
+  defaults: {
+    generation_mode: 'deep',
+    reasoning_model: 'gpt-5.3-chat-latest',
+    brief_model: 'gpt-4.1-mini',
+  },
+}
 
 function currency(value) {
   const n = Number(value || 0)
@@ -44,6 +66,25 @@ function summarizePrediction(pred) {
   if (typeof pred === 'string') return pred
   if (!pred || typeof pred !== 'object') return 'Prediction generated.'
   return pred.headline || pred.title || pred.statement || pred.analysis || 'Prediction generated.'
+}
+
+function formatCostNumber(value) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return '?'
+  return Number.isInteger(parsed) ? String(parsed) : String(parsed)
+}
+
+function modelOptionLabel(option) {
+  const model = option?.model || ''
+  const io = option?.io_cost
+  if (!Array.isArray(io) || io.length !== 2) return model
+  return `${model} (${formatCostNumber(io[0])}, ${formatCostNumber(io[1])})`
+}
+
+function ensureSelectedModelOption(options, selectedModel) {
+  if (!selectedModel) return options
+  if (options.some((item) => item?.model === selectedModel)) return options
+  return [{ model: selectedModel, io_cost: null }, ...options]
 }
 
 function StageDataFetch({ data }) {
@@ -124,6 +165,19 @@ function StageNews({ data }) {
 function StageInsights({ data }) {
   const insights = data.insights || []
   const predictions = data.predictions || []
+  const executiveSummary = data.executive_summary || []
+  if (executiveSummary.length) {
+    return (
+      <div className="stageBody">
+        <h4>Executive Summary</h4>
+        <ul>
+          {executiveSummary.map((item, idx) => (
+            <li key={idx}>{String(item)}</li>
+          ))}
+        </ul>
+      </div>
+    )
+  }
   return (
     <div className="stageBody">
       <div className="splitGrid">
@@ -214,9 +268,13 @@ function renderStageContent(stageKey, data) {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('pipeline')
+  const [labOptions, setLabOptions] = useState(DEFAULT_LAB_OPTIONS)
   const [country, setCountry] = useState('SAU')
   const [startYear, setStartYear] = useState(2018)
   const [endYear, setEndYear] = useState(new Date().getFullYear())
+  const [generationMode, setGenerationMode] = useState(DEFAULT_LAB_OPTIONS.defaults.generation_mode)
+  const [reasoningModel, setReasoningModel] = useState('gpt-5.3-chat-latest')
+  const [briefModel, setBriefModel] = useState('gpt-4.1-mini')
   const [kpis, setKpis] = useState([])
   const [kpiId, setKpiId] = useState('')
   const [status, setStatus] = useState('Idle')
@@ -245,6 +303,37 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    let cancelled = false
+    fetch('/api/lab/options')
+      .then((resp) => resp.json())
+      .then((payload) => {
+        if (cancelled || !payload || typeof payload !== 'object') return
+        const generationModes = Array.isArray(payload.generation_modes) ? payload.generation_modes : GENERATION_MODE_OPTIONS
+        const models = payload.models && typeof payload.models === 'object' ? payload.models : {}
+        const defaults = payload.defaults && typeof payload.defaults === 'object' ? payload.defaults : {}
+        setLabOptions({
+          generation_modes: generationModes,
+          models: {
+            reasoning: Array.isArray(models.reasoning) ? models.reasoning : [],
+            brief_writer: Array.isArray(models.brief_writer) ? models.brief_writer : [],
+          },
+          defaults: {
+            generation_mode: String(defaults.generation_mode || DEFAULT_LAB_OPTIONS.defaults.generation_mode),
+            reasoning_model: String(defaults.reasoning_model || DEFAULT_LAB_OPTIONS.defaults.reasoning_model),
+            brief_model: String(defaults.brief_model || DEFAULT_LAB_OPTIONS.defaults.brief_model),
+          },
+        })
+        if (defaults.generation_mode) setGenerationMode(String(defaults.generation_mode))
+        if (defaults.reasoning_model) setReasoningModel(String(defaults.reasoning_model))
+        if (defaults.brief_model) setBriefModel(String(defaults.brief_model))
+      })
+      .catch(() => {
+        // keep local defaults if options endpoint fails
+      })
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
     const raw = localStorage.getItem(RUN_HISTORY_KEY)
     if (!raw) return
     try {
@@ -264,6 +353,27 @@ export default function App() {
 
   const kpiName = useMemo(() => kpis.find((item) => item.id === kpiId)?.name || kpiId, [kpis, kpiId])
   const selectedRun = useMemo(() => runHistory.find((row) => row.id === selectedRunId) || null, [runHistory, selectedRunId])
+  const generationModeOptions = useMemo(
+    () => (Array.isArray(labOptions.generation_modes) && labOptions.generation_modes.length ? labOptions.generation_modes : GENERATION_MODE_OPTIONS),
+    [labOptions],
+  )
+  const reasoningModelOptions = useMemo(
+    () => ensureSelectedModelOption(Array.isArray(labOptions.models?.reasoning) ? labOptions.models.reasoning : [], reasoningModel),
+    [labOptions, reasoningModel],
+  )
+  const briefModelOptions = useMemo(
+    () => ensureSelectedModelOption(Array.isArray(labOptions.models?.brief_writer) ? labOptions.models.brief_writer : [], briefModel),
+    [labOptions, briefModel],
+  )
+  const pipelineMode = finalResult?.generation_mode || generationMode
+  const pipelineStageOrder = useMemo(
+    () => (pipelineMode === 'light' ? STAGE_ORDER_LIGHT : STAGE_ORDER_DEEP),
+    [pipelineMode],
+  )
+  const selectedRunStageOrder = useMemo(
+    () => ((selectedRun?.generationMode || 'deep') === 'light' ? STAGE_ORDER_LIGHT : STAGE_ORDER_DEEP),
+    [selectedRun],
+  )
   const reportBaseFileName = finalResult?.full_report_filename?.replace(/\.md$/i, '') || `macrobrief_lab_report_${finalResult?.run_id || 'latest'}`
 
   function downloadFullReportMarkdown() {
@@ -309,6 +419,9 @@ export default function App() {
           start_year: Number(startYear),
           end_year: Number(endYear),
           kpi_id: kpiId,
+          generation_mode: generationMode,
+          reasoning_model: reasoningModel,
+          brief_model: briefModel,
         }),
       })
       if (!response.ok) {
@@ -376,6 +489,9 @@ export default function App() {
               kpiName,
               startYear: Number(startYear),
               endYear: Number(endYear),
+              generationMode: event?.content?.generation_mode || generationMode,
+              reasoningModel: event?.content?.reasoning_model || reasoningModel,
+              briefModel: event?.content?.brief_model || briefModel,
               totalCost: doneTotal,
               stageCosts: doneCosts,
             }
@@ -419,6 +535,30 @@ export default function App() {
           End Year
           <input type="number" value={endYear} onChange={(e) => setEndYear(Number(e.target.value))} />
         </label>
+        <label>
+          Generation Mode
+          <select value={generationMode} onChange={(e) => setGenerationMode(e.target.value)}>
+            {generationModeOptions.map((mode) => (
+              <option key={mode} value={mode}>{mode}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Reasoning Model
+          <select value={reasoningModel} onChange={(e) => setReasoningModel(e.target.value)}>
+            {reasoningModelOptions.map((option) => (
+              <option key={option.model} value={option.model}>{modelOptionLabel(option)}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Brief Model
+          <select value={briefModel} onChange={(e) => setBriefModel(e.target.value)}>
+            {briefModelOptions.map((option) => (
+              <option key={option.model} value={option.model}>{modelOptionLabel(option)}</option>
+            ))}
+          </select>
+        </label>
         <label className="kpi">
           KPI
           <select value={kpiId} onChange={(e) => setKpiId(e.target.value)}>
@@ -435,7 +575,7 @@ export default function App() {
       </section>
 
       <section className="subtitle card">
-        <strong>Run Context:</strong> {country} / {kpiName} / {startYear}-{endYear}
+        <strong>Run Context:</strong> {country} / {kpiName} / {startYear}-{endYear} / {generationMode} / {reasoningModel} / {briefModel}
       </section>
 
       {error ? <section className="error">{error}</section> : null}
@@ -448,7 +588,7 @@ export default function App() {
       {activeTab === 'pipeline' ? (
         <section className="pipelineLayout">
           <section className="stageGrid">
-            {STAGE_ORDER.map((stage, idx) => {
+            {pipelineStageOrder.map((stage, idx) => {
               const data = stageContent[stage.key]
               const done = stageState(stageContent, stage.key) === 'done'
               const cost = finalResult?.stage_costs?.[stage.key] || null
@@ -521,7 +661,7 @@ export default function App() {
                   <div>
                     <strong>{run.country} - KPI {run.kpiId}</strong>
                     <p>{run.kpiName}</p>
-                    <p className="muted">{run.startYear}-{run.endYear}</p>
+                    <p className="muted">{run.startYear}-{run.endYear} / {run.generationMode || 'deep'}</p>
                   </div>
                   <div className="runRowMeta">
                     <span>{currency(run.totalCost)}</span>
@@ -557,7 +697,7 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {STAGE_ORDER.map((stage) => {
+                    {selectedRunStageOrder.map((stage) => {
                       const row = selectedRun.stageCosts?.[stage.key]
                       return (
                         <tr key={stage.key}>
