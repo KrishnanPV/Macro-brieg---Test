@@ -7,6 +7,29 @@ from typing import Any
 from backend.lab.workflow.common import NEWS_MODEL, call_json_model
 
 
+def _empty_call_meta() -> dict[str, Any]:
+    return {
+        "model": NEWS_MODEL,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "input_cost": 0.0,
+        "output_cost": 0.0,
+        "total_cost": 0.0,
+        "calls": 0,
+    }
+
+
+def _accumulate_call_meta(total: dict[str, Any], call_meta: dict[str, Any] | None) -> None:
+    if not call_meta:
+        return
+    total["input_tokens"] += int(call_meta.get("input_tokens", 0) or 0)
+    total["output_tokens"] += int(call_meta.get("output_tokens", 0) or 0)
+    total["input_cost"] += float(call_meta.get("input_cost", 0.0) or 0.0)
+    total["output_cost"] += float(call_meta.get("output_cost", 0.0) or 0.0)
+    total["total_cost"] += float(call_meta.get("total_cost", 0.0) or 0.0)
+    total["calls"] += 1
+
+
 def run_step(
     *,
     country: str,
@@ -21,33 +44,56 @@ def run_step(
 
     system_prompt = (
         "You are a macro news researcher using web search evidence.\n"
-        "For each hypothesis, find concrete corroborating or contradicting evidence.\n"
+        "Find concrete corroborating or contradicting evidence for one hypothesis.\n"
         "Return JSON with keys: `evidence_items` (array) and `research_notes` (string).\n"
         "Each evidence item must include `hypothesis_id`, `stance`, `summary`, `date`, "
         "`source`, and `url`."
     )
-    user_prompt = (
-        f"Country: {country}\n"
-        f"KPI: {kpi_name}\n"
-        f"Window: {start_year}-{end_year}\n\n"
-        "Hypotheses:\n"
-        f"{json.dumps(hypotheses, indent=2, default=str)}\n\n"
-        "Use high-quality sources. Return 6-12 evidence items total."
-    )
-    parsed, call_meta = call_json_model(
-        model=NEWS_MODEL,
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
-        caller="lab.news_researcher",
-        use_perplexity=True,
-        include_call_meta=True,
-    )
-    evidence_items = parsed.get("evidence_items", [])
-    if not evidence_items and parsed.get("items"):
-        evidence_items = parsed["items"]
+    aggregated_meta = _empty_call_meta()
+    evidence_items: list[dict[str, Any]] = []
+    note_parts: list[str] = []
+
+    for index, hypothesis in enumerate(hypotheses, start=1):
+        hypothesis_id = str(hypothesis.get("id") or f"hyp_{index}")
+        hypothesis_title = str(hypothesis.get("title") or hypothesis_id)
+        user_prompt = (
+            f"Country: {country}\n"
+            f"KPI: {kpi_name}\n"
+            f"Window: {start_year}-{end_year}\n\n"
+            "Hypothesis:\n"
+            f"{json.dumps(hypothesis, indent=2, default=str)}\n\n"
+            "Use high-quality sources. Return 3-4 evidence items for this hypothesis only."
+        )
+        parsed, call_meta = call_json_model(
+            model=NEWS_MODEL,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            caller="lab.news_researcher",
+            use_perplexity=True,
+            include_call_meta=True,
+        )
+        _accumulate_call_meta(aggregated_meta, call_meta)
+
+        call_items = parsed.get("evidence_items", [])
+        if not call_items and parsed.get("items"):
+            call_items = parsed["items"]
+        call_items = call_items[:4]
+        for item in call_items:
+            if not isinstance(item, dict):
+                continue
+            normalized = dict(item)
+            normalized.setdefault("hypothesis_id", hypothesis_id)
+            evidence_items.append(normalized)
+
+        notes = str(parsed.get("research_notes", "")).strip()
+        if notes:
+            note_parts.append(f"{hypothesis_title}: {notes}")
+
+    research_notes = "\n\n".join(note_parts)
+    call_meta = aggregated_meta if aggregated_meta["calls"] else None
     return {
         "evidence_items": evidence_items,
-        "research_notes": parsed.get("research_notes", ""),
+        "research_notes": research_notes,
         "call_meta": call_meta,
     }
 
