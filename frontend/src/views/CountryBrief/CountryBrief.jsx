@@ -180,6 +180,7 @@ export default function CountryBrief() {
     setSelectedCountry, setStartYear, setEndYear, setFocus,
     generateBrief, resetBrief, openSidebar, setFdiFlowMode,
     kpiSelectionMode, setKpiSelectionMode, kpiCatalog, selectedKpiIds, toggleKpiId, fetchKpiCatalog,
+    generationMode, setGenerationMode,
     debugMode, fetchDebugMode, storeTestReport, loadTestReport,
     refreshFdiBenchmark,
   } = useCountryBriefStore()
@@ -325,6 +326,39 @@ export default function CountryBrief() {
             </div>
           </div>
 
+          <div className="mt-8 max-w-md mx-auto">
+            <h3 className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-3 text-center">Analysis Mode</h3>
+            <div className="flex justify-center">
+              <div className="inline-flex rounded-xl overflow-hidden border border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setGenerationMode('light')}
+                  className={`px-5 py-2.5 text-xs font-semibold transition-all ${
+                    generationMode === 'light'
+                      ? 'bg-slate-800 text-white'
+                      : 'bg-white text-slate-500 hover:bg-slate-50'
+                  }`}
+                >
+                  Light
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGenerationMode('deep')}
+                  className={`px-5 py-2.5 text-xs font-semibold transition-all ${
+                    generationMode === 'deep'
+                      ? 'bg-slate-800 text-white'
+                      : 'bg-white text-slate-500 hover:bg-slate-50'
+                  }`}
+                >
+                  Deep
+                </button>
+              </div>
+            </div>
+            <p className="text-[10px] text-slate-400 text-center mt-2">
+              Light is default and lower-cost; deep adds richer external evidence.
+            </p>
+          </div>
+
           {/* Focus input */}
           <div className="mt-8 max-w-lg mx-auto">
             <div className="flex items-center gap-2 mb-2">
@@ -404,6 +438,7 @@ export default function CountryBrief() {
                 </h1>
                 <p className="text-xs text-slate-400">
                   {startYear}–{endYear}
+                  {` · ${generationMode === 'deep' ? 'Deep' : 'Light'} mode`}
                   {focus ? ` · ${focus.slice(0, 60)}${focus.length > 60 ? '...' : ''}` : ''}
                 </p>
               </div>

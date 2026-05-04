@@ -1,10 +1,10 @@
-"""Country Brief pipeline orchestrator — wires the 3 agents together.
+"""Country Brief pipeline orchestrator backed by lab workflow stages.
 
 Flow:
   1. Fetch KPI data from Oxford Economics           (deterministic)
   2. Compute derived facts + triage + signals       (deterministic math)
-  3. Agent 1: interpret signals                     (1 GPT call)
-  4. Agent 2: research news — if deep_analysis      (0-1 Perplexity call)
+  3. Lab workflow: signal/hypothesis/insight stages  (aggregated)
+  4. Lab news research — if deep_analysis            (aggregated)
   5. Agent 3: stream the brief                      (1 GPT call, streamed)
   6. Parse blocks + override metrics ribbon          (deterministic)
 """
@@ -12,25 +12,21 @@ from __future__ import annotations
 
 import json
 import logging
-import sys
 import uuid
 from datetime import datetime
 from typing import Any, Iterator
 
-from backend.config import OPENAI_MODEL
 from backend.models.kpi_registry import SPECS
 from backend.models.schemas import CountryBriefGenerateRequest
 from backend.services.derived_facts import compute_derived_facts
 from backend.services.knoema_client import fetch_kpi_data, fetch_oil_price_data
 from backend.services.kpi_triage import triage_kpis
 from backend.services.metrics_ribbon import compute_ribbon_metrics
-from backend.services.signals import extract_signals, rank_signals
 
-from backend.country_brief.agents.signal_interpreter import interpret_signals
-from backend.country_brief.agents.news_researcher import research_signals
 from backend.country_brief.agents.benchmark_selector import select_benchmark_countries
 from backend.country_brief.agents.brief_writer import stream_brief, parse_brief_blocks
 from backend.country_brief.fdi_benchmark import build_fdi_benchmark_payload
+from backend.country_brief.lab_workflow_adapter_agg import run_lab_workflow_for_country
 from backend.country_brief.prompts import build_brief_prompt
 
 log = logging.getLogger(__name__)
@@ -268,11 +264,12 @@ def run_pipeline(
     *,
     deep_analysis: bool = False,
 ) -> Iterator[str]:
-    """Generate a country brief using the 3-agent pipeline.
+    """Generate a country brief using lab workflow stages plus brief writing.
 
-    Agent 1: Math signals + 1 GPT interpretation call
-    Agent 2: 1 Perplexity news call (only if deep_analysis=True)
-    Agent 3: 1 GPT call to write the final brief
+    Analysis stages (aggregated over selected KPIs): signal extraction,
+    hypotheses, optional evidence research, and insight refinement from
+    `backend.lab.workflow`.
+    Final stage: stream country brief markdown and parse into frontend blocks.
     """
     all_oxford_ids = [s.id for s in SPECS if s.source == "oxford"]
     manual_selection = bool(req.kpi_ids)
@@ -371,7 +368,7 @@ def run_pipeline(
                 fdi_benchmark_payload["max_year"] = max(all_years) if all_years else req.end_year
                 yield _ndjson({"type": "fdi_benchmark", "content": fdi_benchmark_payload})
 
-    # ── Phase 2: Agent 1 — Signal Detection + Interpretation ─────────────
+    # ── Phase 2: KPI triage + lab workflow analysis ──────────────────────
     yield _ndjson({"type": "status", "content": "Detecting signals..."})
 
     derived_facts = compute_derived_facts(valid_results)
@@ -400,77 +397,30 @@ def run_pipeline(
         ],
     })
 
-    all_signals = extract_signals(valid_results)
+    selected_kpi_ids = [kid for kid in notable_ids if kid in ids_with_data]
+    if not selected_kpi_ids:
+        selected_kpi_ids = [kid for kid in available_ids if kid in ids_with_data]
+    notable_ids = selected_kpi_ids
 
-    # Full KPI context for news breadth (before pre-filtering narrows KPI diversity)
-    all_kpi_signals: dict[str, list[str]] = {}
-    for s in all_signals:
-        all_kpi_signals.setdefault(s.kpi_name, []).append(s.description)
-
-    top_signals = rank_signals(all_signals, scores)
-    signals_data = [
-        {"signal_id": s.signal_id, "kpi_id": s.kpi_id, "kpi_name": s.kpi_name,
-         "country": s.country, "signal_type": s.signal_type,
-         "from_date": s.from_date, "to_date": s.to_date,
-         "from_value": s.from_value, "to_value": s.to_value,
-         "magnitude_pct": s.magnitude_pct, "description": s.description}
-        for s in top_signals
-    ]
-
-    yield _ndjson({"type": "status", "content": "Interpreting signals..."})
-    signal_interpretation = interpret_signals(
-        signals_data, req.country, req.start_year, req.end_year,
-        notable_kpi_ids=notable_ids,
-    )
-
-    # ── Phase 3: Agent 2 — News Correlation (deep search only) ───────────
-    articles_flat: list[dict[str, Any]] = []
-    prompt_bundle: dict[str, Any] | None = None
-
-    if deep_analysis and signals_data:
+    yield _ndjson({
+        "type": "status",
+        "content": (
+            f"Running {'deep' if deep_analysis else 'light'} lab workflow "
+            f"for {len(selected_kpi_ids)} selected KPIs..."
+        ),
+    })
+    if deep_analysis:
         yield _ndjson({"type": "status", "content": "Searching for correlated news..."})
-        try:
-            articles_flat, prompt_bundle = research_signals(
-                signals_data, req.country, req.start_year, req.end_year,
-                signal_interpretation=signal_interpretation,
-                all_kpi_signals=all_kpi_signals,
-            )
-            n = len(articles_flat)
-            # print + flush: visible in the uvicorn terminal (app loggers are easy to miss)
-            def _pplx_line(msg: str) -> None:
-                print(msg, file=sys.stderr, flush=True)
 
-            _pplx_line("========== Perplexity / news research ==========")
-            _pplx_line(f"Country {req.country} | articles in news_catalog: {n}")
-            preview_n = min(n, 12)
-            for i, a in enumerate(articles_flat[:preview_n], 1):
-                title = (a.get("title") or "")[:100]
-                dt = a.get("date") or ""
-                src = a.get("source") or ""
-                url = (a.get("url") or "")[:80]
-                snip = (a.get("snippet") or "")[:160].replace("\n", " ")
-                _pplx_line(f"  [{i}/{n}] {title} | date={dt} | source={src}")
-                _pplx_line(f"        url: {url}")
-                _pplx_line(f"        snippet: {snip}")
-            if n > preview_n:
-                _pplx_line(f"  ... {n - preview_n} more (omitted from terminal preview)")
-            _pplx_line("==================================================")
-            log.info("Perplexity news_catalog: %d articles", n)
-        except Exception as exc:
-            print(f"[Perplexity] ERROR: {exc}", file=sys.stderr, flush=True)
-            log.warning("News research failed: %s", exc)
-    elif not deep_analysis:
-        print(
-            "[Perplexity] Skipped: deep_analysis=False (enable deep analysis for news fetch)",
-            file=sys.stderr,
-            flush=True,
-        )
-    elif not signals_data:
-        print(
-            "[Perplexity] Skipped: no signals_data after ranking (nothing to match to news)",
-            file=sys.stderr,
-            flush=True,
-        )
+    kpi_results_by_id = {str(r.get("kpi_id", "")): r for r in valid_results}
+    signal_interpretation, articles_flat, prompt_bundle = run_lab_workflow_for_country(
+        country=req.country,
+        start_year=req.start_year,
+        end_year=req.end_year,
+        selected_kpi_ids=selected_kpi_ids,
+        kpi_results=kpi_results_by_id,
+        deep_analysis=deep_analysis,
+    )
 
     yield _ndjson({
         "type": "news_catalog",
@@ -501,7 +451,7 @@ def run_pipeline(
         period_highlight = signal_interpretation.get("period_highlight", "")
 
     injection = (
-        "SIGNAL INTERPRETATION (from analysis agent):\n"
+        "SIGNAL INTERPRETATION (from lab workflow):\n"
         f"```json\n{interpretation_json}\n```\n\n"
     )
 
@@ -563,7 +513,9 @@ def run_pipeline(
         "12. For Investment section: include one bullet benchmarking the country's FDI "
         "against peers from FDI_BENCHMARK_CONTEXT, if available.\n"
         "13. BOLDING: Bold ONLY the first sentence of each section's Bullet 1. Do NOT "
-        "bold numbers. Maximum 1-2 structural phrases bolded across remaining bullets."
+        "bold numbers. Maximum 1-2 structural phrases bolded across remaining bullets.\n"
+        "14. Keep KPI treatment concise: for each KPI, include only the most decision-relevant "
+        "1-2 data references unless a sharp reversal requires extra detail."
     )
 
     messages.append({"role": "user", "content": injection})

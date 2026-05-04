@@ -148,3 +148,79 @@ def run_step(
         "call_meta": call_meta,
     }
 
+
+def run_step_bulk(
+    *,
+    country: str,
+    kpi_name: str,
+    start_year: int,
+    end_year: int,
+    hypotheses: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Run one Sonar call for all hypotheses together (cost-efficient mode)."""
+    if not hypotheses:
+        return {"evidence_items": [], "research_notes": "No hypotheses to validate.", "call_meta": None}
+
+    normalized_hypotheses: list[dict[str, Any]] = []
+    for index, hypothesis in enumerate(hypotheses, start=1):
+        if not isinstance(hypothesis, dict):
+            continue
+        hyp = dict(hypothesis)
+        hyp.setdefault("id", f"hyp_{index}")
+        normalized_hypotheses.append(hyp)
+
+    if not normalized_hypotheses:
+        return {"evidence_items": [], "research_notes": "No valid hypotheses to validate.", "call_meta": None}
+
+    system_prompt = (
+        "You are a macro news researcher using web search evidence.\n"
+        "Find concrete corroborating or contradicting evidence across all provided hypotheses.\n"
+        "Return JSON with keys: `evidence_items` (array) and `research_notes` (string).\n"
+        "Each evidence item must include `hypothesis_id`, `stance`, `summary`, `date`, "
+        "`source`, and `url`."
+    )
+    user_prompt = (
+        f"Country: {country}\n"
+        f"KPI scope: {kpi_name}\n"
+        f"Window: {start_year}-{end_year}\n\n"
+        "Hypotheses:\n"
+        f"{json.dumps(normalized_hypotheses, indent=2, default=str)}\n\n"
+        "Return 8-12 high-quality evidence items total, spread across hypotheses."
+    )
+    parsed, call_meta = call_json_model(
+        model=NEWS_MODEL,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        caller="lab.news_researcher.bulk",
+        use_perplexity=True,
+        include_call_meta=True,
+    )
+
+    evidence_items = parsed.get("evidence_items", [])
+    if not evidence_items and parsed.get("items"):
+        evidence_items = parsed["items"]
+    normalized_items: list[dict[str, Any]] = []
+    valid_hypothesis_ids = {
+        str(hyp.get("id")).strip()
+        for hyp in normalized_hypotheses
+        if str(hyp.get("id", "")).strip()
+    }
+    fallback_ids = sorted(valid_hypothesis_ids)
+    fallback_idx = 0
+    for item in evidence_items:
+        if not isinstance(item, dict):
+            continue
+        normalized = dict(item)
+        hyp_id = str(normalized.get("hypothesis_id", "")).strip()
+        if not hyp_id or hyp_id not in valid_hypothesis_ids:
+            if fallback_ids:
+                normalized["hypothesis_id"] = fallback_ids[fallback_idx % len(fallback_ids)]
+                fallback_idx += 1
+        normalized_items.append(normalized)
+
+    return {
+        "evidence_items": normalized_items[:12],
+        "research_notes": str(parsed.get("research_notes", "")).strip(),
+        "call_meta": call_meta,
+    }
+
