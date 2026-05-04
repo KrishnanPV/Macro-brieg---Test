@@ -1,10 +1,13 @@
 """News corroboration step for lab workflow."""
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import json
 from typing import Any
 
 from backend.lab.workflow.common import NEWS_MODEL, call_json_model
+
+MAX_PARALLEL_SONAR_CALLS = 4
 
 
 def _empty_call_meta() -> dict[str, Any]:
@@ -30,6 +33,41 @@ def _accumulate_call_meta(total: dict[str, Any], call_meta: dict[str, Any] | Non
     total["calls"] += 1
 
 
+def _run_hypothesis_search(
+    *,
+    hypothesis: dict[str, Any],
+    hypothesis_id: str,
+    hypothesis_title: str,
+    country: str,
+    kpi_name: str,
+    start_year: int,
+    end_year: int,
+    system_prompt: str,
+) -> dict[str, Any]:
+    user_prompt = (
+        f"Country: {country}\n"
+        f"KPI: {kpi_name}\n"
+        f"Window: {start_year}-{end_year}\n\n"
+        "Hypothesis:\n"
+        f"{json.dumps(hypothesis, indent=2, default=str)}\n\n"
+        "Use high-quality sources. Return 3-4 evidence items for this hypothesis only."
+    )
+    parsed, call_meta = call_json_model(
+        model=NEWS_MODEL,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        caller="lab.news_researcher",
+        use_perplexity=True,
+        include_call_meta=True,
+    )
+    return {
+        "hypothesis_id": hypothesis_id,
+        "hypothesis_title": hypothesis_title,
+        "parsed": parsed,
+        "call_meta": call_meta,
+    }
+
+
 def run_step(
     *,
     country: str,
@@ -52,26 +90,39 @@ def run_step(
     aggregated_meta = _empty_call_meta()
     evidence_items: list[dict[str, Any]] = []
     note_parts: list[str] = []
+    max_workers = min(MAX_PARALLEL_SONAR_CALLS, len(hypotheses))
+    ordered_results: list[dict[str, Any] | None] = [None] * len(hypotheses)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = []
+        for index, hypothesis in enumerate(hypotheses, start=1):
+            hypothesis_id = str(hypothesis.get("id") or f"hyp_{index}")
+            hypothesis_title = str(hypothesis.get("title") or hypothesis_id)
+            futures.append(
+                (
+                    index - 1,
+                    executor.submit(
+                        _run_hypothesis_search,
+                        hypothesis=hypothesis,
+                        hypothesis_id=hypothesis_id,
+                        hypothesis_title=hypothesis_title,
+                        country=country,
+                        kpi_name=kpi_name,
+                        start_year=start_year,
+                        end_year=end_year,
+                        system_prompt=system_prompt,
+                    ),
+                )
+            )
+        for idx, future in futures:
+            ordered_results[idx] = future.result()
 
-    for index, hypothesis in enumerate(hypotheses, start=1):
-        hypothesis_id = str(hypothesis.get("id") or f"hyp_{index}")
-        hypothesis_title = str(hypothesis.get("title") or hypothesis_id)
-        user_prompt = (
-            f"Country: {country}\n"
-            f"KPI: {kpi_name}\n"
-            f"Window: {start_year}-{end_year}\n\n"
-            "Hypothesis:\n"
-            f"{json.dumps(hypothesis, indent=2, default=str)}\n\n"
-            "Use high-quality sources. Return 3-4 evidence items for this hypothesis only."
-        )
-        parsed, call_meta = call_json_model(
-            model=NEWS_MODEL,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            caller="lab.news_researcher",
-            use_perplexity=True,
-            include_call_meta=True,
-        )
+    for result in ordered_results:
+        if not result:
+            continue
+        parsed = result["parsed"]
+        call_meta = result["call_meta"]
+        hypothesis_id = str(result["hypothesis_id"])
+        hypothesis_title = str(result["hypothesis_title"])
         _accumulate_call_meta(aggregated_meta, call_meta)
 
         call_items = parsed.get("evidence_items", [])
