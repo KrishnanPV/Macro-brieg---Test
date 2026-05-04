@@ -22,3 +22,24 @@ Append-only log for lab prompt updates. Do not edit past entries; add a new entr
 
 **Impact**
 - Improves analytical depth and consistency across long time horizons.
+
+## [SG-001] 2026-05-04 — style_guide.md (0.1.1)
+
+**Change**
+- Created initial style guide for macroeconomic briefs
+- Enforced bullet + sub-bullet structure with one idea per bullet
+- Added CXO-focused writing requirement (clarity and speed of understanding)
+- Introduced “so what” / answer-first framing with allowance for movement-led structure
+- Added rule to balance observation (data movement) with implication and analysis
+- Enforced concise, non-redundant, no-filler writing
+- Added comparative framing and precise directional language
+
+**Reason**
+- Ensure outputs are sharp, executive-ready, and analytically structured
+- Align writing style with a hybrid of IMF analytical flow and consulting clarity
+- Prevent descriptive or verbose outputs lacking clear implications
+
+**Impact**
+- Improves readability and decision-relevance of outputs
+- Increases consistency in insight structure across the pipeline
+- Reduces verbosity and redundancy

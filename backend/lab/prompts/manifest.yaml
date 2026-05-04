@@ -17,7 +17,7 @@
     {
       "id": "style_guide",
       "file": "style_guide.md",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "used_by": ["brief_writer"]
     },
     {
