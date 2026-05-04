@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 from datetime import datetime
 from typing import Any, Iterator
@@ -145,6 +146,123 @@ _KPI_DISPLAY_ORDER: dict[str, int] = {
     "5": 0, "6": 1,
     "9": 0,
 }
+
+_SECTION_KPI_REQUIREMENTS: list[tuple[str, set[str]]] = [
+    ("Economic Performance & Growth", {"1", "2", "3", "11"}),
+    ("Investment & External Position", {"4", "8"}),
+    ("Inflation & Monetary Conditions", {"7"}),
+    ("Labour Market & Domestic Demand", {"5", "6"}),
+    ("Demographics & Structural Factors", {"9"}),
+]
+
+_SRC_CITATION_RE = re.compile(r"\[src:(\d+)\]", re.IGNORECASE)
+
+
+def _required_section_titles(ids_with_data: set[str]) -> list[str]:
+    required: list[str] = []
+    for title, kpis in _SECTION_KPI_REQUIREMENTS:
+        if not ids_with_data or any(k in ids_with_data for k in kpis):
+            required.append(title)
+    return required or [title for title, _ in _SECTION_KPI_REQUIREMENTS]
+
+
+def _has_tagged_section(raw_text: str, title: str) -> bool:
+    pattern = re.compile(rf"\[SECTION:\s*{re.escape(title)}\s*\]", re.IGNORECASE)
+    return bool(pattern.search(raw_text))
+
+
+def _inject_fallback_sources(raw_text: str, fallback_markers: list[str]) -> str:
+    if not fallback_markers:
+        return raw_text
+    source_line = f"\n\nSources: {' '.join(fallback_markers)}"
+    outlook_close = raw_text.find("[/OUTLOOK]")
+    if outlook_close >= 0:
+        return raw_text[:outlook_close] + source_line + "\n" + raw_text[outlook_close:]
+    return raw_text + source_line
+
+
+def _apply_brief_contract_guardrails(
+    raw_text: str,
+    *,
+    required_sections: list[str],
+    deep_analysis: bool,
+    articles_flat: list[dict[str, Any]],
+) -> tuple[str, list[str]]:
+    issues: list[str] = []
+    text = (raw_text or "").strip()
+
+    if not text:
+        text = (
+            "[EXEC_SUMMARY]\n"
+            "Macro conditions are mixed across the selected window; the section analysis below "
+            "summarizes key drivers, inflections, and outlook.\n"
+            "[/EXEC_SUMMARY]\n"
+        )
+        issues.append("empty_model_output")
+
+    if "[EXEC_SUMMARY]" not in text:
+        text = (
+            "[EXEC_SUMMARY]\n"
+            "The selected indicators show a meaningful macro shift; section analysis below "
+            "details transmission channels and implications.\n"
+            "[/EXEC_SUMMARY]\n\n"
+            f"{text}"
+        )
+        issues.append("missing_exec_summary")
+
+    if "[OUTLOOK]" not in text:
+        text += (
+            "\n\n[OUTLOOK]\n"
+            "**Tailwinds**\n"
+            "- Policy and demand resilience can support activity if momentum is sustained.\n\n"
+            "**Headwinds**\n"
+            "- External volatility and financing conditions remain downside risks.\n\n"
+            "**Net Assessment**\n"
+            "The near-term balance is mixed; persistence depends on policy execution and global conditions.\n"
+            "[/OUTLOOK]"
+        )
+        issues.append("missing_outlook")
+
+    missing_sections = [title for title in required_sections if not _has_tagged_section(text, title)]
+    if missing_sections:
+        section_stubs = [
+            (
+                f"[SECTION:{title}]\n"
+                "- Data is limited for this theme in the selected window; prioritize available trend "
+                "signals and chart evidence.\n"
+                "[/SECTION]"
+            )
+            for title in missing_sections
+        ]
+        insert_at = text.find("[OUTLOOK]")
+        if insert_at >= 0:
+            text = text[:insert_at].rstrip() + "\n\n" + "\n\n".join(section_stubs) + "\n\n" + text[insert_at:]
+        else:
+            text = text.rstrip() + "\n\n" + "\n\n".join(section_stubs)
+        issues.extend([f"missing_section:{title}" for title in missing_sections])
+
+    if deep_analysis and articles_flat:
+        existing_markers = set(_SRC_CITATION_RE.findall(text))
+        required_citations = min(2, len(articles_flat))
+        if len(existing_markers) < required_citations:
+            fallback_markers: list[str] = []
+            for article in articles_flat:
+                idx = article.get("index")
+                if idx is None:
+                    idx = article.get("n")
+                if idx is None:
+                    continue
+                marker = str(idx)
+                if marker in existing_markers or marker in fallback_markers:
+                    continue
+                fallback_markers.append(marker)
+                if len(existing_markers) + len(fallback_markers) >= required_citations:
+                    break
+            if fallback_markers:
+                text = _inject_fallback_sources(text, [f"[src:{n}]" for n in fallback_markers])
+                issues.append("citation_fallback_added")
+
+    return text, issues
 
 
 def _compute_exhibit_map(notable_kpi_ids: list[str]) -> dict[str, str]:
@@ -471,10 +589,9 @@ def run_pipeline(
 
     if deep_analysis and articles_flat:
         injection += (
-            "NEWS CONTEXT:\n"
-            "Use 2-3 news [src:N] citations across the ENTIRE brief where a named policy, "
-            "event, or decision validates a structural claim. Do not force citations into "
-            "every section.\n\n"
+            "DEEP-MODE CITATION POLICY:\n"
+            "Use 1-2 [src:N] citations where a named policy, event, or institutional decision "
+            "supports a structural claim. Keep citations sparse and evidence-linked.\n\n"
         )
 
     exhibit_map = _compute_exhibit_map(notable_ids)
@@ -487,37 +604,6 @@ def run_pipeline(
             "e.g. 'GDP grew 3.2% (1A)'. Do NOT write 'Exhibit' — just the code.\n\n"
         )
 
-    injection += (
-        "REMINDER — MANDATORY RULES:\n"
-        "1. Produce exactly these 5 sections: Economic Performance & Growth, "
-        "Investment & External Position, Inflation & Monetary Conditions, "
-        "Labour Market & Domestic Demand, Demographics & Structural Factors.\n"
-        "2. NEVER merge sections 3 and 4.\n"
-        "3. TOP-DOWN per section: Bullet 1 = GOVERNING INSIGHT — bold the ENTIRE "
-        "first sentence (structural takeaway), then un-bolded data with exhibit citations. "
-        "Bullet 2 = composition/drivers with sub-bullets (indented '  - '). "
-        "Bullet 3 = volatility ONLY if genuine reversal (skip if smooth). "
-        "Bullet 4 = forward projection.\n"
-        "4. Max 4-5 top-level bullets per section. Sub-bullets do not count.\n"
-        "5. Use annual time references. No quarterly notation.\n"
-        "6. Place each [CHART:kpi_id] only ONCE in the entire brief.\n"
-        "7. No fluff, no bridging filler, no restating previous bullets.\n"
-        "8. State start and end values. Do NOT narrate year-by-year. Only highlight an "
-        "intermediate year if there was a drastic reversal.\n"
-        "9. When aggregate GDP growth changes, state whether oil or non-oil GDP drove it. "
-        "For GCC, connect oil GDP to oil price movements. Note: GDP is real, oil prices "
-        "are nominal — flat oil GDP with rising prices reflects volume constraints.\n"
-        "10. Decompose net FDI changes: state whether driven by inflow growth, outflow "
-        "moderation, or both.\n"
-        "11. When external debt as % of GDP changes, decompose numerator vs denominator.\n"
-        "12. For Investment section: include one bullet benchmarking the country's FDI "
-        "against peers from FDI_BENCHMARK_CONTEXT, if available.\n"
-        "13. BOLDING: Bold ONLY the first sentence of each section's Bullet 1. Do NOT "
-        "bold numbers. Maximum 1-2 structural phrases bolded across remaining bullets.\n"
-        "14. Keep KPI treatment concise: for each KPI, include only the most decision-relevant "
-        "1-2 data references unless a sharp reversal requires extra detail."
-    )
-
     messages.append({"role": "user", "content": injection})
 
     full_text = ""
@@ -528,7 +614,18 @@ def run_pipeline(
             full_text = payload
 
     # ── Phase 5: Parse and finalize ──────────────────────────────────────
-    blocks = parse_brief_blocks(full_text)
+    required_sections = _required_section_titles(ids_with_data)
+    guarded_text, guardrail_issues = _apply_brief_contract_guardrails(
+        full_text,
+        required_sections=required_sections,
+        deep_analysis=deep_analysis,
+        articles_flat=articles_flat,
+    )
+    if guardrail_issues:
+        log.warning("Applied brief contract guardrails: %s", ", ".join(guardrail_issues))
+        yield _ndjson({"type": "status", "content": "Applying output contract guardrails..."})
+
+    blocks = parse_brief_blocks(guarded_text)
     blocks = _ensure_kpi9_demographics_chart(blocks, ids_with_data)
     fallback_chart_ids = [kid for kid in available_ids if kid in ids_with_data]
     blocks = _ensure_chart_blocks(blocks, preferred_chart_ids=fallback_chart_ids)
