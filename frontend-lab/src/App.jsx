@@ -24,6 +24,18 @@ function currency(value) {
   return `$${n.toFixed(6)}`
 }
 
+function downloadBlob(filename, text, mime) {
+  const blob = new Blob([text], { type: mime })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
 function stageState(stageContent, stageKey) {
   return Object.prototype.hasOwnProperty.call(stageContent, stageKey) ? 'done' : 'pending'
 }
@@ -252,6 +264,21 @@ export default function App() {
 
   const kpiName = useMemo(() => kpis.find((item) => item.id === kpiId)?.name || kpiId, [kpis, kpiId])
   const selectedRun = useMemo(() => runHistory.find((row) => row.id === selectedRunId) || null, [runHistory, selectedRunId])
+  const reportBaseFileName = finalResult?.full_report_filename?.replace(/\.md$/i, '') || `macrobrief_lab_report_${finalResult?.run_id || 'latest'}`
+
+  function downloadFullReportMarkdown() {
+    const markdown = finalResult?.full_report_markdown
+    if (!markdown) return
+    const filename = finalResult?.full_report_filename || `${reportBaseFileName}.md`
+    downloadBlob(filename, markdown, 'text/markdown;charset=utf-8;')
+  }
+
+  function downloadFullReportJson() {
+    const payload = finalResult?.full_report
+    if (!payload) return
+    const filename = finalResult?.full_report_json_filename || `${reportBaseFileName}.json`
+    downloadBlob(filename, JSON.stringify(payload, null, 2), 'application/json;charset=utf-8;')
+  }
 
   async function generateInsights() {
     if (!kpiId) {
@@ -450,6 +477,24 @@ export default function App() {
             <div className="metricRow">
               <span>Run ID</span>
               <code>{finalResult?.run_id || '-'}</code>
+            </div>
+            <div className="downloadRow">
+              <button
+                type="button"
+                className="downloadBtn"
+                onClick={downloadFullReportMarkdown}
+                disabled={!finalResult?.full_report_markdown}
+              >
+                Download Full Report (.md)
+              </button>
+              <button
+                type="button"
+                className="downloadBtn secondary"
+                onClick={downloadFullReportJson}
+                disabled={!finalResult?.full_report}
+              >
+                Download Full Report (.json)
+              </button>
             </div>
             <h4>Final Brief</h4>
             {finalResult?.brief_markdown ? (

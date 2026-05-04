@@ -299,6 +299,35 @@ body {
   color: #365171;
 }
 
+.downloadRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.downloadBtn {
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #1a56dc 0%, #244cb4 100%);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 8px 12px;
+}
+
+.downloadBtn.secondary {
+  background: #eff4ff;
+  color: #2b4f87;
+  border: 1px solid #c6d7f2;
+}
+
+.downloadBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .briefCard {
   border: 1px solid #dde7f7;
   border-radius: 12px;
