@@ -32,6 +32,12 @@ frontend-lab/dist/
 # Local databases (runtime)
 data/
 
+# backend
+backend/lab/reasoning_distillation/corpus/imf_article_iv/raw/
+backend/lab/reasoning_distillation/corpus/imf_article_iv/excerpts/
+backend/lab/reasoning_distillation/annotations/imf_reasoning_units_v1.jsonl
+backend/lab/reasoning_distillation/outputs/reasoning_playbook_v1.md
+
 # Misc
 COMMIT_MSG
 old_insights/
