@@ -43,3 +43,25 @@ Append-only log for lab prompt updates. Do not edit past entries; add a new entr
 - Improves readability and decision-relevance of outputs
 - Increases consistency in insight structure across the pipeline
 - Reduces verbosity and redundancy
+
+## [RP-001] 2026-05-04 — reasoning_playbook.md (0.1.1)
+
+**Change**
+- First test of reasoning_distillation workflow
+- Created initial reasoning playbook based on IMF Article IV analysis patterns
+- Defined core reasoning loop: signal → driver → mechanism → impact → offsets → net effect → risks → implication
+- Added rules for:
+  - separating driver vs. mechanism
+  - identifying transmission channels and second-round effects
+  - handling offsets, buffers, and external vs. domestic factors
+  - calibrating confidence based on evidence strength
+- Introduced common reasoning patterns (terms-of-trade, financial conditions, buffers, reform upside, component decomposition)
+- Added failure modes (e.g., false causality, ignoring offsets, lack of transmission logic)
+
+**Reason**
+- Encode structured, repeatable macroeconomic reasoning derived from IMF Article IV reports
+- Improve analytical depth and reduce superficial or descriptive outputs
+
+**Impact**
+- Standardizes reasoning across pipeline steps
+- Improves causal clarity, consistency, and robustness of insights
