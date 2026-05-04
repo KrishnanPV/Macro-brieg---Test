@@ -33,5 +33,16 @@ Purpose: quick file map for agents and developers working in `backend/lab`.
 - `tests/test_prompt_bundle_snapshot.py` - Snapshot guard for prompt bundle hash/shape changes.
 - `tests/fixtures/prompt_bundle_snapshot.json` - Expected prompt bundle snapshot fixture.
 
+## Reasoning Distillation
+- `reasoning_distillation/__init__.py` - Package marker for IMF reasoning distillation scripts.
+- `reasoning_distillation/run_annotation.py` - Extracts capped PDF excerpts and annotates reasoning units into JSONL.
+- `reasoning_distillation/synthesize_patterns.py` - Synthesizes recurring reasoning patterns into a playbook draft.
+- `reasoning_distillation/prompts/annotation_prompt_v1.md` - Annotation system prompt with the canonical IMF schema.
+- `reasoning_distillation/prompts/pattern_synthesis_prompt_v1.md` - Synthesis system prompt for playbook generation.
+- `reasoning_distillation/corpus/imf_article_iv/raw/.gitkeep` - Placeholder for raw IMF Article IV PDF inputs.
+- `reasoning_distillation/corpus/imf_article_iv/excerpts/.gitkeep` - Placeholder for generated excerpt text files.
+- `reasoning_distillation/annotations/imf_reasoning_units_v1.jsonl` - Output annotations JSONL artifact.
+- `reasoning_distillation/outputs/reasoning_playbook_v1.md` - Generated reasoning playbook draft output.
+
 Maintenance note: whenever a new file is added under `backend/lab`, add one line here in the same section.
 
