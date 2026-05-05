@@ -21,8 +21,8 @@ from backend.models.kpi_registry import SPECS
 from backend.models.schemas import CountryBriefGenerateRequest
 from backend.services.derived_facts import compute_derived_facts
 from backend.services.knoema_client import fetch_kpi_data, fetch_oil_price_data
-from backend.services.kpi_triage import triage_kpis
-from backend.services.metrics_ribbon import compute_ribbon_metrics
+from backend.country_brief.kpi_triage import triage_kpis
+from backend.country_brief.metrics_ribbon import compute_ribbon_metrics
 
 from backend.country_brief.benchmark_selector import select_benchmark_countries
 from backend.country_brief.brief_writer import stream_brief, parse_brief_blocks

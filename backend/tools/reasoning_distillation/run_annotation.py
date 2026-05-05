@@ -338,7 +338,7 @@ def _annotate_excerpts(
                     model=REASONING_MODEL,
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
-                    caller="lab.reasoning_distillation.annotation",
+                    caller="tools.reasoning_distillation.annotation",
                     include_call_meta=True,
                 )
                 _accumulate_cost(cost_totals, call_meta)

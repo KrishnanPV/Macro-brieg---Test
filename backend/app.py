@@ -9,9 +9,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.models.db import init_db
-from backend.routers import data, insights, workspace, costs
+from backend.routers import data, workspace, costs
 from backend.country_brief.router import router as country_brief_router
-from backend.lab.router import router as lab_router
+from backend.dashboard.router import router as dashboard_router
 from backend.services.cost_tracker import init_cost_db
 
 logging.basicConfig(
@@ -42,10 +42,9 @@ app.add_middleware(
 )
 
 app.include_router(data.router)
-app.include_router(insights.router)
 app.include_router(workspace.router)
 app.include_router(country_brief_router)
-app.include_router(lab_router)
+app.include_router(dashboard_router)
 app.include_router(costs.router)
 
 

@@ -285,6 +285,13 @@ export default function InlineChartBlock({
   onFdiBenchmarkYearChange,
   exhibitLabel = null,
 }) {
+  const hasRenderablePoints = (seriesList) => (
+    Array.isArray(seriesList)
+    && seriesList.some(
+      (s) => Array.isArray(s?.points) && s.points.some((p) => p?.value != null)
+    )
+  )
+
   const isOilGdpSplit = String(kpiId) === '2-oil'
   const lookupId = isOilGdpSplit ? '2' : String(kpiId)
   const isFdiKpi = lookupId === '4'
@@ -300,16 +307,33 @@ export default function InlineChartBlock({
   const kpiResult = kpiDataCache.find(r => String(r.kpi_id) === lookupId)
   const defaults = KPI_CHART_DEFAULTS[String(kpiId)] || DEFAULT_CHART
   const hasDualFreq = !!(kpiResult?.series_annual?.length)
+  const hasQuarterlyPoints = hasRenderablePoints(kpiResult?.series)
+  const hasAnnualPoints = hasRenderablePoints(kpiResult?.series_annual)
 
   const [vizMode, setVizMode] = useState(defaults.vizMode)
-  const [freq, setFreq] = useState(hasDualFreq ? defaults.freq : 'Q')
+  const [freq, setFreq] = useState(() => {
+    if (!hasDualFreq) return 'Q'
+    if (defaults.freq === 'A' && hasAnnualPoints) return 'A'
+    if (defaults.freq === 'Q' && hasQuarterlyPoints) return 'Q'
+    if (hasQuarterlyPoints) return 'Q'
+    if (hasAnnualPoints) return 'A'
+    return defaults.freq
+  })
   const [copied, setCopied] = useState(false)
   const [cagrPopupOpen, setCagrPopupOpen] = useState(false)
   const [cagrResult, setCagrResult] = useState(null)
 
-  const activeSeries = (freq === 'A' && hasDualFreq)
-    ? kpiResult.series_annual
-    : kpiResult?.series
+  let activeSeries = (freq === 'A' && hasDualFreq)
+    ? (kpiResult?.series_annual || [])
+    : (kpiResult?.series || [])
+  if (!hasRenderablePoints(activeSeries) && hasDualFreq) {
+    const fallbackSeries = freq === 'A'
+      ? (kpiResult?.series || [])
+      : (kpiResult?.series_annual || [])
+    if (hasRenderablePoints(fallbackSeries)) {
+      activeSeries = fallbackSeries
+    }
+  }
 
   const isQuarterly = freq === 'Q' && kpiResult?.frequency === 'Q'
 
@@ -427,7 +451,14 @@ export default function InlineChartBlock({
     )
   }
 
-  if (!rows.length) return null
+  if (!rows.length) {
+    return (
+      <div className={`rounded-lg border border-amber-100 bg-amber-50/90 px-3 py-2 text-[11px] text-amber-900 ${compact ? '' : 'my-2'}`}>
+        <span className="font-medium">KPI {kpiId}</span>
+        {' — '}data was fetched, but no renderable points were available for the selected chart frequency.
+      </div>
+    )
+  }
 
   const chartHeight = compact ? 180 : 220
   const lay = kpiResult?.last_actual_year ?? new Date().getFullYear() - 1

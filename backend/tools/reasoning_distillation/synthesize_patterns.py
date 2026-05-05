@@ -148,7 +148,7 @@ def main() -> int:
         model=REASONING_MODEL,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
-        caller="lab.reasoning_distillation.synthesis",
+        caller="tools.reasoning_distillation.synthesis",
         include_call_meta=True,
     )
     _validate_markdown_output(markdown)

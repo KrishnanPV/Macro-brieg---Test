@@ -178,8 +178,8 @@ function normalizedInsightEntry(raw) {
   return { text: raw.text || '', newsCatalog: raw.newsCatalog || [] }
 }
 
-/** NDJSON stream: news_catalog, text_delta chunks, done. */
-async function streamInsightFetch(url, body, onProgress, onError) {
+/** JSON insight response: { text, newsCatalog }. */
+async function fetchInsight(url, body, onError) {
   try {
     const resp = await fetch(url, {
       method: 'POST',
@@ -190,43 +190,11 @@ async function streamInsightFetch(url, body, onProgress, onError) {
       const detail = await resp.json().catch(() => ({}))
       throw new Error(detail.detail || `HTTP ${resp.status}`)
     }
-    const reader = resp.body.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
-    let text = ''
-    let newsCatalog = []
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
-      const lines = buf.split('\n')
-      buf = lines.pop() ?? ''
-      for (const line of lines) {
-        const t = line.trim()
-        if (!t) continue
-        try {
-          const chunk = JSON.parse(t)
-          if (chunk.type === 'news_catalog') {
-            newsCatalog = chunk.content?.articles || []
-          } else if (chunk.type === 'text_delta') {
-            text += chunk.content || ''
-            onProgress?.({ text, newsCatalog })
-          }
-        } catch { /* ignore */ }
-      }
+    const payload = await resp.json()
+    return {
+      text: payload?.text || '',
+      newsCatalog: payload?.newsCatalog || [],
     }
-    if (buf.trim()) {
-      try {
-        const chunk = JSON.parse(buf.trim())
-        if (chunk.type === 'news_catalog') {
-          newsCatalog = chunk.content?.articles || []
-        } else if (chunk.type === 'text_delta') {
-          text += chunk.content || ''
-        }
-        onProgress?.({ text, newsCatalog })
-      } catch { /* ignore */ }
-    }
-    return { text, newsCatalog }
   } catch (e) {
     onError(e.message)
     return { text: '', newsCatalog: [] }
@@ -339,15 +307,12 @@ export default function KpiCard({
       return
     }
     setInsight(''); setInsightNewsCatalog([]); setInsightError(''); setInsightLoading(true); setInsightOpen(true)
-    const final = await streamInsightFetch(
-      '/api/insights/kpi',
-      { countries, kpi_result: result },
-      ({ text, newsCatalog }) => {
-        setInsight(text)
-        setInsightNewsCatalog(newsCatalog)
-      },
-      (msg) => setInsightError(msg),
-    )
+    const final = await fetchInsight('/api/dashboard/insights/country', {
+      country: countries[0],
+      kpi_result: result,
+    }, (msg) => setInsightError(msg))
+    setInsight(final.text)
+    setInsightNewsCatalog(final.newsCatalog)
     setInsightLoading(false)
     writeCache(cachePrefix, final)
   }
@@ -359,19 +324,20 @@ export default function KpiCard({
     setTabbedErrors(prev => ({ ...prev, [tabKey]: '' }))
 
     const isCrossCountry = tabKey === '__cross__'
-    const url = isCrossCountry ? '/api/insights/kpi/cross-country' : '/api/insights/kpi/country'
+    const url = isCrossCountry
+      ? '/api/dashboard/insights/cross-country'
+      : '/api/dashboard/insights/country'
     const body = isCrossCountry
       ? { countries, kpi_result: result }
       : { country: tabKey, kpi_result: result }
 
-    const final = await streamInsightFetch(
-      url, body,
-      ({ text, newsCatalog }) => {
-        setTabbedInsights(prev => ({ ...prev, [tabKey]: text }))
-        setTabbedNewsCatalog(prev => ({ ...prev, [tabKey]: newsCatalog }))
-      },
+    const final = await fetchInsight(
+      url,
+      body,
       (msg) => setTabbedErrors(prev => ({ ...prev, [tabKey]: msg })),
     )
+    setTabbedInsights(prev => ({ ...prev, [tabKey]: final.text }))
+    setTabbedNewsCatalog(prev => ({ ...prev, [tabKey]: final.newsCatalog }))
     setTabbedLoading(prev => ({ ...prev, [tabKey]: false }))
     writeCache(`${cachePrefix}:${tabKey}`, final)
   }

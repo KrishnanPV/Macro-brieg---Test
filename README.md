@@ -1,6 +1,6 @@
 # Macro Brief
 
-Oxford Economics KPI data, a **multi-country Dashboard** with streaming AI insights per KPI, and an automated **Country Brief** (metrics ribbon, themed sections, inline charts, optional deep analysis with Perplexity news). Workspaces persist country/KPI selections and brief settings in SQLite.
+Oxford Economics KPI data, a **multi-country Dashboard** with stage-based AI insights per KPI, and an automated **Country Brief** (metrics ribbon, themed sections, inline charts, optional deep analysis with Perplexity news). Workspaces persist country/KPI selections and brief settings in SQLite.
 
 ### Using this README after you pull the branch
 
@@ -23,7 +23,7 @@ You run **one backend** (Python) and **one frontend** (the website). Everything 
  ┌─────────────────────────┐         ┌──────────────────────────────┐
  │ WorkspaceShell          │         │ backend/app.py               │
  │ ├─ Landing              │ REST /  │ ├─ routers/data.py           │ → Knoema (Oxford EAP)
- │ ├─ Country Brief        │ NDJSON  │ ├─ routers/insights.py       │ → OpenAI
+│ ├─ Country Brief        │ NDJSON  │ ├─ dashboard/router.py       │ → insights_pipeline stages
  │ └─ Dashboard            │────────▶│ ├─ routers/workspace.py      │ → SQLite
  │                         │         │ ├─ routers/costs.py          │
  └─────────────────────────┘         │ └─ country_brief/router.py │ → brief pipeline
@@ -37,7 +37,7 @@ You run **one backend** (Python) and **one frontend** (the website). Everything 
 |------|------|---------|
 | **Landing** | `/` | Choose Country Brief or Dashboard |
 | **Country Brief** | `/country-brief` | Generate/regenerate brief; section refine sidebar |
-| **Dashboard** | `/dashboard` | Multi-country KPI charts; streaming insights |
+| **Dashboard** | `/dashboard` | Multi-country KPI charts; stage-driven insights |
 
 ### Backend layout
 
@@ -47,13 +47,13 @@ backend/
   config.py              # .env settings
   routers/
     data.py              # KPIs, fetch, refetch
-    insights.py          # POST .../insights/kpi, .../country, .../cross-country
     workspace.py         # /api/workspaces CRUD
     costs.py             # usage / costs
+  dashboard/             # dashboard-specific insight router + stage orchestration
   country_brief/         # generate (NDJSON), refine, FDI benchmark helpers
-  services/              # knoema, derived_facts, triage, agent, news_client, metrics_ribbon, …
+  services/              # shared integrations/utilities (knoema, derived_facts, news, cost tracking)
   models/                # schemas, db (SQLAlchemy), kpi_registry
-  prompts/system.py      # dashboard insight prompts
+  insights_pipeline/     # reusable stage library for insight generation
 ```
 
 ### Frontend layout
@@ -164,7 +164,7 @@ All variables are listed in [`.env.example`](.env.example). You **must** supply 
 
 1. **Country Brief** — pick country, years, optional focus; **Generate**. Charts use cached KPI series; **Demographics** uses KPI **9** (population) when that series was fetched (include KPI 9 in **manual** KPI mode).
 
-2. **Dashboard** — pick countries and KPIs, fetch data, open per-KPI insights (streaming).
+2. **Dashboard** — pick countries and KPIs, fetch data, open per-KPI insights.
 
 3. **Workspaces** — create/switch workspaces; selections sync to the backend.
 
@@ -180,13 +180,12 @@ All variables are listed in [`.env.example`](.env.example). You **must** supply 
 | POST | `/api/fetch` | Fetch series |
 | POST | `/api/fetch-kpi` | Single KPI refetch |
 
-### Insights
+### Dashboard Insights
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/insights/kpi` | Streaming insight for one KPI |
-| POST | `/api/insights/kpi/country` | Same, series filtered to one country |
-| POST | `/api/insights/kpi/cross-country` | Cross-country comparison |
+| POST | `/api/dashboard/insights/country` | Country-scoped insight for one KPI |
+| POST | `/api/dashboard/insights/cross-country` | Cross-country insight for one KPI |
 
 ### Country Brief
 
