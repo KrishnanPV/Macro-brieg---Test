@@ -1,22 +1,23 @@
-"""Adapter from aggregated lab workflow stages to country brief outputs."""
+"""Country-brief aggregated insights composition over reusable stages."""
 from __future__ import annotations
 
 import logging
 import re
 from typing import Any
 
-from backend.lab.workflow import (
+from backend.insights_pipeline.stages import (
     evaluator,
     hypotheses_generator,
     insights_generator,
     news_researcher,
     signal_extractor,
 )
-from backend.lab.workflow.common import REASONING_MODEL
+from backend.insights_pipeline.stages.common import REASONING_MODEL, get_kpi_context
 
 log = logging.getLogger(__name__)
 
 _KPI_ID_RE = re.compile(r"\bKPI\s*([0-9]+)\b", re.IGNORECASE)
+_AGGREGATION_SERIES_POLICY = "prefer_annual_then_native"
 
 
 def _as_dict_list(items: Any) -> list[dict[str, Any]]:
@@ -55,31 +56,60 @@ def _kpi_scope_name(selected_kpi_ids: list[str], kpi_results: dict[str, dict[str
     return f"{', '.join(names[:4])}, +{len(names) - 4} more"
 
 
+def _select_series_for_aggregation(payload: dict[str, Any]) -> tuple[list[dict[str, Any]], str]:
+    annual_series = payload.get("series_annual")
+    if isinstance(annual_series, list) and annual_series:
+        return [dict(s) for s in annual_series if isinstance(s, dict)], "A"
+
+    native_series = payload.get("series")
+    if isinstance(native_series, list) and native_series:
+        hinted = str(payload.get("frequency") or "").strip().upper() or "native"
+        return [dict(s) for s in native_series if isinstance(s, dict)], hinted
+    return [], "none"
+
+
 def _bundle_kpi_payload(
     *,
     selected_kpi_ids: list[str],
     kpi_results: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     combined_series: list[dict[str, Any]] = []
+    source_frequencies: dict[str, str] = {}
+    bundle_errors: list[Any] = []
+
     for kid in selected_kpi_ids:
         payload = dict(kpi_results.get(kid) or {})
-        for series in payload.get("series") or []:
-            if not isinstance(series, dict):
-                continue
+        series_rows, frequency = _select_series_for_aggregation(payload)
+        source_frequencies[kid] = frequency
+
+        errors = payload.get("errors")
+        if isinstance(errors, list) and errors:
+            bundle_errors.extend(errors)
+
+        for series in series_rows:
             row = dict(series)
             indicator = str(row.get("indicator") or payload.get("kpi_name") or f"KPI {kid}").strip()
             row["indicator"] = f"{indicator} [KPI {kid}]"
+            row["source_kpi_id"] = kid
+            row["source_frequency"] = frequency
             combined_series.append(row)
+
     return {
         "kpi_id": "bundle",
         "kpi_name": "Country brief KPI bundle",
-        "frequency": "A",
+        "frequency": "mixed",
+        "aggregation_policy": _AGGREGATION_SERIES_POLICY,
+        "source_frequencies": source_frequencies,
         "series": combined_series,
-        "errors": [],
+        "errors": bundle_errors,
     }
 
 
 def _extract_kpi_ids_from_signal(signal: dict[str, Any], selected_kpi_ids: list[str]) -> list[str]:
+    source_kpi_id = str(signal.get("source_kpi_id") or "").strip()
+    if source_kpi_id in selected_kpi_ids:
+        return [source_kpi_id]
+
     joined = " ".join(
         [
             str(signal.get("kpi") or ""),
@@ -95,6 +125,25 @@ def _extract_kpi_ids_from_signal(signal: dict[str, Any], selected_kpi_ids: list[
             seen.add(kid)
             ordered.append(kid)
     return ordered
+
+
+def _build_bundle_kpi_context(
+    selected_kpi_ids: list[str],
+    kpi_results: dict[str, dict[str, Any]],
+) -> str:
+    sections: list[str] = []
+    for kid in selected_kpi_ids:
+        payload = dict(kpi_results.get(kid) or {})
+        kpi_name = str(payload.get("kpi_name") or f"KPI {kid}").strip()
+        unit = str(payload.get("unit") or "").strip()
+        context_lines: list[str] = [f"KPI {kid}: {kpi_name}"]
+        if unit:
+            context_lines.append(f"Data unit: {unit}")
+        per_kpi_context = get_kpi_context(kid)
+        if per_kpi_context:
+            context_lines.append(per_kpi_context)
+        sections.append("\n".join(context_lines).strip())
+    return "\n\n---\n\n".join(section for section in sections if section)
 
 
 def _signal_impact_text(selected_signals: list[dict[str, Any]], start: int = 0) -> str:
@@ -233,7 +282,7 @@ def _article_from_evidence(
     return article
 
 
-def run_lab_workflow_for_country(
+def run_for_country(
     *,
     country: str,
     start_year: int,
@@ -243,7 +292,7 @@ def run_lab_workflow_for_country(
     deep_analysis: bool,
     reasoning_model: str = REASONING_MODEL,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any] | None]:
-    """Run one aggregated lab workflow chain for country brief generation."""
+    """Run aggregated insights composition for country brief generation."""
     payload = _bundle_kpi_payload(selected_kpi_ids=selected_kpi_ids, kpi_results=kpi_results)
     if not payload.get("series"):
         interpretation = {
@@ -268,6 +317,7 @@ def run_lab_workflow_for_country(
         selected_signals = selected_signals[:8]
 
     kpi_scope_name = _kpi_scope_name(selected_kpi_ids, kpi_results)
+    bundle_context = _build_bundle_kpi_context(selected_kpi_ids, kpi_results)
     try:
         hypotheses_output = hypotheses_generator.run_step(
             country=country,
@@ -277,6 +327,7 @@ def run_lab_workflow_for_country(
             end_year=end_year,
             selected_signals=selected_signals,
             reasoning_model=reasoning_model,
+            kpi_context_override=bundle_context,
         )
         hypotheses = _as_dict_list(hypotheses_output.get("hypotheses"))[:6]
     except Exception:

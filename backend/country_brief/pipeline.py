@@ -1,12 +1,12 @@
 """Country Brief pipeline orchestrator backed by lab workflow stages.
 
 Flow:
-  1. Fetch KPI data from Oxford Economics           (deterministic)
-  2. Compute derived facts + triage + signals       (deterministic math)
-  3. Lab workflow: signal/hypothesis/insight stages  (aggregated)
-  4. Lab news research — if deep_analysis            (aggregated)
-  5. Agent 3: stream the brief                      (1 GPT call, streamed)
-  6. Parse blocks + override metrics ribbon          (deterministic)
+  1. Fetch KPI data from Oxford Economics               (deterministic)
+  2. Compute derived facts + triage + signals           (deterministic math)
+  3. Aggregated insights composition via stage library  (aggregated)
+  4. News research — if deep_analysis                   (aggregated)
+  5. Stream the brief                                   (1 GPT call, streamed)
+  6. Parse blocks + override metrics ribbon             (deterministic)
 """
 from __future__ import annotations
 
@@ -24,10 +24,10 @@ from backend.services.knoema_client import fetch_kpi_data, fetch_oil_price_data
 from backend.services.kpi_triage import triage_kpis
 from backend.services.metrics_ribbon import compute_ribbon_metrics
 
-from backend.country_brief.agents.benchmark_selector import select_benchmark_countries
-from backend.country_brief.agents.brief_writer import stream_brief, parse_brief_blocks
+from backend.country_brief.benchmark_selector import select_benchmark_countries
+from backend.country_brief.brief_writer import stream_brief, parse_brief_blocks
+from backend.country_brief.composition.aggregated_insights import run_for_country
 from backend.country_brief.fdi_benchmark import build_fdi_benchmark_payload
-from backend.country_brief.lab_workflow_adapter_agg import run_lab_workflow_for_country
 from backend.country_brief.prompts import build_brief_prompt
 
 log = logging.getLogger(__name__)
@@ -382,11 +382,11 @@ def run_pipeline(
     *,
     deep_analysis: bool = False,
 ) -> Iterator[str]:
-    """Generate a country brief using lab workflow stages plus brief writing.
+    """Generate a country brief using insights stage building blocks.
 
     Analysis stages (aggregated over selected KPIs): signal extraction,
     hypotheses, optional evidence research, and insight refinement from
-    `backend.lab.workflow`.
+    `backend.insights_pipeline.stages`.
     Final stage: stream country brief markdown and parse into frontend blocks.
     """
     all_oxford_ids = [s.id for s in SPECS if s.source == "oxford"]
@@ -523,7 +523,7 @@ def run_pipeline(
     yield _ndjson({
         "type": "status",
         "content": (
-            f"Running {'deep' if deep_analysis else 'light'} lab workflow "
+            f"Running {'deep' if deep_analysis else 'light'} insights workflow "
             f"for {len(selected_kpi_ids)} selected KPIs..."
         ),
     })
@@ -531,7 +531,7 @@ def run_pipeline(
         yield _ndjson({"type": "status", "content": "Searching for correlated news..."})
 
     kpi_results_by_id = {str(r.get("kpi_id", "")): r for r in valid_results}
-    signal_interpretation, articles_flat, prompt_bundle = run_lab_workflow_for_country(
+    signal_interpretation, articles_flat, prompt_bundle = run_for_country(
         country=req.country,
         start_year=req.start_year,
         end_year=req.end_year,
@@ -569,7 +569,7 @@ def run_pipeline(
         period_highlight = signal_interpretation.get("period_highlight", "")
 
     injection = (
-        "SIGNAL INTERPRETATION (from lab workflow):\n"
+        "SIGNAL INTERPRETATION (from aggregated insights workflow):\n"
         f"```json\n{interpretation_json}\n```\n\n"
     )
 

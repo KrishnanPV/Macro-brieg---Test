@@ -11,8 +11,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
+from backend.insights_pipeline.runtime import PROMPTS_DIR, load_prompt_manifest
 from backend.lab.schemas import LabGenerateRequest
-from backend.lab.workflow import (
+from backend.insights_pipeline.stages import (
     brief_writer,
     evaluator,
     hypotheses_generator,
@@ -20,14 +21,13 @@ from backend.lab.workflow import (
     news_researcher,
     signal_extractor,
 )
-from backend.lab.workflow.common import BRIEF_MODEL, REASONING_MODEL, ndjson
+from backend.insights_pipeline.stages.common import BRIEF_MODEL, REASONING_MODEL, ndjson
 from backend.models.kpi_registry import SPECS_BY_ID
 from backend.services.knoema_client import fetch_single_kpi
 
 log = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 BASELINE_PROMPT_FILES = ("manifest.yaml", "PROMPT_CHANGES.md")
 
 
@@ -82,15 +82,7 @@ def _git(args: list[str]) -> str:
 
 
 def _load_prompt_manifest() -> tuple[dict[str, Any], str | None]:
-    manifest_path = PROMPTS_DIR / "manifest.yaml"
-    if not manifest_path.exists():
-        return {}, "manifest.yaml not found"
-    text = manifest_path.read_text(encoding="utf-8")
-    try:
-        parsed = json.loads(text)
-    except json.JSONDecodeError as exc:
-        return {}, f"manifest parse error: {exc.msg}"
-    return parsed if isinstance(parsed, dict) else {}, None
+    return load_prompt_manifest()
 
 
 def _file_mtime_iso(path: Path) -> str | None:
@@ -102,7 +94,7 @@ def _file_mtime_iso(path: Path) -> str | None:
 
 def _collect_prompt_git_changes(manifest_prompt_files: list[str]) -> dict[str, Any]:
     tracked_files = list(dict.fromkeys([*BASELINE_PROMPT_FILES, *manifest_prompt_files]))
-    tracked_paths = [f"backend/lab/prompts/{name}" for name in tracked_files]
+    tracked_paths = [f"backend/insights_pipeline/prompts/{name}" for name in tracked_files]
     status_text = _git(["status", "--porcelain", "--", *tracked_paths])
     if not status_text:
         return {

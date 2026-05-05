@@ -1,10 +1,10 @@
-"""Brief writing step for lab workflow."""
+"""Brief writing step for insights workflow."""
 from __future__ import annotations
 
 import json
 from typing import Any
 
-from backend.lab.workflow.common import BRIEF_MODEL, call_text_model, load_prompt
+from backend.insights_pipeline.stages.common import BRIEF_MODEL, call_text_model, load_prompt
 
 
 def run_step(
@@ -67,7 +67,7 @@ def run_step(
         model=brief_model,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
-        caller="lab.brief_writer",
+        caller="insights_pipeline.brief_writer",
         include_call_meta=True,
     )
     return {"brief_markdown": brief_text, "call_meta": call_meta}

@@ -1,11 +1,11 @@
-"""News corroboration step for lab workflow."""
+"""News corroboration step for insights workflow."""
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 import json
 from typing import Any
 
-from backend.lab.workflow.common import NEWS_MODEL, call_json_model
+from backend.insights_pipeline.stages.common import NEWS_MODEL, call_json_model
 
 MAX_PARALLEL_SONAR_CALLS = 4
 
@@ -56,7 +56,7 @@ def _run_hypothesis_search(
         model=NEWS_MODEL,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
-        caller="lab.news_researcher",
+        caller="insights_pipeline.news_researcher",
         use_perplexity=True,
         include_call_meta=True,
     )
@@ -191,7 +191,7 @@ def run_step_bulk(
         model=NEWS_MODEL,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
-        caller="lab.news_researcher.bulk",
+        caller="insights_pipeline.news_researcher.bulk",
         use_perplexity=True,
         include_call_meta=True,
     )

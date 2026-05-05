@@ -1,10 +1,10 @@
-"""Insight quality evaluator for lab workflow."""
+"""Insight quality evaluator for insights workflow."""
 from __future__ import annotations
 
 import json
 from typing import Any
 
-from backend.lab.workflow.common import REASONING_MODEL, call_json_model, load_prompt
+from backend.insights_pipeline.stages.common import REASONING_MODEL, call_json_model, load_prompt
 
 
 def run_step(
@@ -38,7 +38,7 @@ def run_step(
         model=reasoning_model,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
-        caller="lab.evaluator",
+        caller="insights_pipeline.evaluator",
         include_call_meta=True,
     )
     return {

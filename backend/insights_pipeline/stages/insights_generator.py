@@ -1,10 +1,10 @@
-"""Insights generation step for lab workflow."""
+"""Insights generation step for insights workflow."""
 from __future__ import annotations
 
 import json
 from typing import Any
 
-from backend.lab.workflow.common import REASONING_MODEL, call_json_model, load_prompt
+from backend.insights_pipeline.stages.common import REASONING_MODEL, call_json_model, load_prompt
 
 
 def run_step(
@@ -78,7 +78,7 @@ def run_step(
         model=reasoning_model,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
-        caller="lab.insights_generator",
+        caller="insights_pipeline.insights_generator",
         include_call_meta=True,
     )
     if generation_mode == "light":

@@ -1,6 +1,6 @@
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Sparkles, Loader2, RotateCcw, Target, Download, DatabaseBackup, Upload } from 'lucide-react'
+import { ArrowLeft, Sparkles, Loader2, RotateCcw, Target, Download, DatabaseBackup, Upload, FileText, ChevronDown } from 'lucide-react'
 import useCountryBriefStore from '../../stores/countryBriefStore'
 import MetricsRibbon from './blocks/MetricsRibbon'
 import ExecSummaryBlock from './blocks/ExecSummaryBlock'
@@ -69,6 +69,29 @@ function StreamingProgress({ statusMessage, streamingText }) {
       )}
     </div>
   )
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+}
+
+function collectInlineCssText() {
+  let cssText = ''
+  for (const sheet of Array.from(document.styleSheets)) {
+    try {
+      for (const rule of Array.from(sheet.cssRules || [])) {
+        cssText += `${rule.cssText}\n`
+      }
+    } catch {
+      // Some browser-managed stylesheets (extensions/cross-origin) are inaccessible.
+    }
+  }
+  return cssText
 }
 
 function BriefDocument({
@@ -173,6 +196,8 @@ function BriefDocument({
 
 export default function CountryBrief() {
   const navigate = useNavigate()
+  const downloadMenuRef = useRef(null)
+  const [downloadMenuOpen, setDownloadMenuOpen] = useState(false)
   const {
     countryOptions, countryNames, selectedCountry,
     startYear, endYear, focus, generating, statusMessage, streamingText,
@@ -222,6 +247,94 @@ export default function CountryBrief() {
     a.click()
     URL.revokeObjectURL(url)
   }, [blocks, selectedCountry, countryNames, startYear, endYear, focus])
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (!downloadMenuRef.current?.contains(event.target)) {
+        setDownloadMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  const buildReportHtml = useCallback(() => {
+    if (!blocks.length) return
+    const reportRoot = document.querySelector('[data-country-brief-report]')
+    if (!reportRoot) return ''
+
+    const country = countryNames[selectedCountry] || selectedCountry
+    const cssText = collectInlineCssText()
+    const safeCountry = escapeHtml(country)
+    const safePeriod = escapeHtml(`${startYear}\u2013${endYear}`)
+    const safeMode = escapeHtml(generationMode === 'deep' ? 'Deep mode' : 'Light mode')
+    const safeFocus = focus ? escapeHtml(focus) : ''
+    const focusHtml = safeFocus
+      ? `<p class="text-xs text-slate-500 mt-1"><span class="font-semibold text-slate-600">Focus:</span> ${safeFocus}</p>`
+      : ''
+
+    const html = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${safeCountry} - Country Brief</title>
+  <style>${cssText}</style>
+  <style>
+    body { margin: 0; background: #f8fafc; color: #0f172a; }
+    .download-shell { max-width: 1280px; margin: 0 auto; padding: 24px 20px 40px; }
+    .download-header { max-width: 56rem; margin: 0 auto 16px; }
+    @media print {
+      body { background: #fff; }
+      .download-shell { padding: 0; }
+    }
+  </style>
+</head>
+<body>
+  <main class="download-shell">
+    <header class="download-header">
+      <h1 class="text-2xl font-bold text-slate-800">${safeCountry}</h1>
+      <p class="text-xs text-slate-500">${safePeriod} &middot; ${safeMode}</p>
+      ${focusHtml}
+    </header>
+    ${reportRoot.outerHTML}
+  </main>
+</body>
+</html>`
+    return html
+  }, [blocks, countryNames, selectedCountry, startYear, endYear, generationMode, focus])
+
+  const handleDownloadHtml = useCallback(() => {
+    const html = buildReportHtml()
+    if (!html) return
+    const period = `${startYear}-${endYear}`
+
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${selectedCountry}_brief_${period}.html`
+    a.click()
+    URL.revokeObjectURL(url)
+    setDownloadMenuOpen(false)
+  }, [buildReportHtml, selectedCountry, startYear, endYear])
+
+  const handleDownloadPdf = useCallback(() => {
+    const html = buildReportHtml()
+    if (!html) return
+
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) return
+    printWindow.document.open()
+    printWindow.document.write(html)
+    printWindow.document.close()
+    const triggerPrint = () => {
+      printWindow.focus()
+      printWindow.print()
+    }
+    printWindow.onload = () => setTimeout(triggerPrint, 150)
+    setDownloadMenuOpen(false)
+  }, [buildReportHtml])
 
   // --- Landing page: country selector + focus ---
   if (!briefGenerated && !generating) {
@@ -461,11 +574,40 @@ export default function CountryBrief() {
               >
                 Start over
               </button>
+              <div className="relative" ref={downloadMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setDownloadMenuOpen(v => !v)}
+                  disabled={!blocks.length}
+                  className="inline-flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition disabled:opacity-40"
+                >
+                  <Download className="w-3.5 h-3.5" />Download
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${downloadMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {downloadMenuOpen && (
+                  <div className="absolute right-0 mt-1.5 w-36 rounded-xl border border-slate-200 bg-white shadow-lg py-1 z-20">
+                    <button
+                      type="button"
+                      onClick={handleDownloadHtml}
+                      className="w-full px-3 py-2 text-left text-xs font-medium text-slate-600 hover:bg-slate-50"
+                    >
+                      Download HTML
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDownloadPdf}
+                      className="w-full px-3 py-2 text-left text-xs font-medium text-slate-600 hover:bg-slate-50"
+                    >
+                      Download PDF
+                    </button>
+                  </div>
+                )}
+              </div>
               <button onClick={handleExportMarkdown}
                 disabled={!blocks.length}
                 className="inline-flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition disabled:opacity-40"
               >
-                <Download className="w-3.5 h-3.5" />Export
+                <FileText className="w-3.5 h-3.5" />Markdown
               </button>
               <button onClick={generateBrief}
                 disabled={generating}
@@ -486,18 +628,20 @@ export default function CountryBrief() {
           </div>
         )}
 
-        <TriagePanel triageResults={triageResults} />
+        <div data-country-brief-report>
+          <TriagePanel triageResults={triageResults} />
 
-        <BriefDocument
-          blocks={blocks}
-          kpiDataCache={kpiDataCache}
-          fdiBenchmark={fdiBenchmark}
-          fdiFlowMode={fdiFlowMode}
-          onFdiFlowModeChange={setFdiFlowMode}
-          onFdiBenchmarkYearChange={refreshFdiBenchmark}
-          onDiscuss={handleDiscuss}
-          newsCatalog={newsArticles}
-        />
+          <BriefDocument
+            blocks={blocks}
+            kpiDataCache={kpiDataCache}
+            fdiBenchmark={fdiBenchmark}
+            fdiFlowMode={fdiFlowMode}
+            onFdiFlowModeChange={setFdiFlowMode}
+            onFdiBenchmarkYearChange={refreshFdiBenchmark}
+            onDiscuss={handleDiscuss}
+            newsCatalog={newsArticles}
+          />
+        </div>
 
         <div className="h-16" />
       </div>

@@ -5,7 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from backend.lab.workflow.common import PROMPTS_DIR, build_prompt_bundle
+from backend.insights_pipeline.stages.common import PROMPTS_DIR, build_prompt_bundle
 
 
 def _load_manifest() -> dict:
@@ -38,6 +38,6 @@ def test_prompt_bundle_snapshot_matches_fixture():
     actual = _build_current_snapshot()
     assert actual == expected, (
         "Prompt snapshot mismatch. If intentional, update "
-        "backend/lab/prompts/PROMPT_CHANGES.md and refresh fixture."
+        "backend/insights_pipeline/prompts/PROMPT_CHANGES.md and refresh fixture."
     )
 

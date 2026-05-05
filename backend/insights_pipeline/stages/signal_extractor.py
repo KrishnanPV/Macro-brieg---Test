@@ -1,4 +1,4 @@
-"""Signal extraction step for the lab workflow."""
+"""Signal extraction step for the insights workflow."""
 from __future__ import annotations
 
 import math
@@ -6,7 +6,7 @@ import statistics
 from datetime import datetime
 from typing import Any
 
-from backend.lab.workflow.common import REASONING_MODEL, call_json_model
+from backend.insights_pipeline.stages.common import REASONING_MODEL, call_json_model
 
 
 def _sorted_points(series: dict[str, Any]) -> list[dict[str, Any]]:
@@ -298,13 +298,14 @@ def _deterministic_signals(kpi_payload: dict[str, Any]) -> list[dict[str, Any]]:
                 "values": values,
                 "indicator": str(series.get("indicator", "indicator")),
                 "country": str(series.get("country", "")),
+                "source_kpi_id": str(series.get("source_kpi_id") or "").strip(),
+                "source_frequency": str(series.get("source_frequency") or "").strip(),
                 "delta": values[-1] - values[0],
                 "pct_change": _pct_change(values[0], values[-1]),
             }
         )
 
     for item in valid_series:
-        series = item["series"]
         points = item["points"]
         values = item["values"]
         overall_pct = item["pct_change"]
@@ -317,6 +318,8 @@ def _deterministic_signals(kpi_payload: dict[str, Any]) -> list[dict[str, Any]]:
         component_drivers = _series_component_drivers(item, valid_series)
         indicator = item["indicator"]
         country = item["country"]
+        source_kpi_id = item["source_kpi_id"]
+        source_frequency = item["source_frequency"]
         start_label = _date_label(points[0].get("date", ""))
         end_label = _date_label(points[-1].get("date", ""))
         period_summary = (
@@ -359,6 +362,8 @@ def _deterministic_signals(kpi_payload: dict[str, Any]) -> list[dict[str, Any]]:
                 "component_drivers": component_drivers,
                 "materiality": materiality,
                 "pattern": primary_pattern,
+                "source_kpi_id": source_kpi_id,
+                "source_frequency": source_frequency,
                 "evidence": {
                     "overall_pct_change": round(overall_pct * 100, 2),
                     "start_value": values[0],
@@ -403,7 +408,7 @@ def run_step(
         model=reasoning_model,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
-        caller="lab.signal_extractor",
+        caller="insights_pipeline.signal_extractor",
         include_call_meta=True,
     )
     selected_ids = triage.get("selected_signal_ids", [])

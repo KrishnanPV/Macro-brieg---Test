@@ -1,7 +1,7 @@
 """Tests for deterministic lab signal extraction."""
 from __future__ import annotations
 
-from backend.lab.workflow import signal_extractor
+from backend.insights_pipeline.stages import signal_extractor
 
 
 def _series(indicator: str, values: list[float]) -> dict:

@@ -1,8 +1,4 @@
-"""Agent: choose FDI benchmark peers (2 global + 2 regional).
-
-By default uses a deterministic selection (no LLM call) to save cost.
-Set BENCHMARK_USE_LLM=1 in .env to re-enable the GPT-based selection.
-"""
+"""Choose FDI benchmark peers (2 global + 2 regional)."""
 from __future__ import annotations
 
 import logging
@@ -93,7 +89,6 @@ def _build_pools(country: str) -> tuple[list[str], list[str], list[str]]:
     global_pool = [c for c in GLOBAL_CANDIDATE_ORDER if c != target and c not in regional_pool]
     global_pool = _dedupe_keep_order(global_pool, banned={target})
 
-    # Reserve extra ordered candidates for missing-data backfills.
     backfill_pool = _dedupe_keep_order(global_pool + regional_pool, banned={target})
     return global_pool, regional_pool, backfill_pool
 
@@ -115,16 +110,7 @@ def select_benchmark_countries(
     start_year: int,
     end_year: int,
 ) -> dict[str, Any]:
-    """Pick 2 global + 2 regional benchmark peers.
-
-    Uses deterministic pool ordering by default (no LLM call). Set
-    BENCHMARK_USE_LLM=1 in .env to re-enable GPT-based peer selection.
-
-    Returns dict with keys:
-      - global: [ISO3, ISO3]
-      - regional: [ISO3, ISO3]
-      - global_pool/regional_pool/backfill_pool (ordered fallback candidates)
-    """
+    """Pick 2 global + 2 regional benchmark peers."""
     target = country.upper()
     fallback = _fallback_selection(target)
     global_pool = fallback["global_pool"]
@@ -191,3 +177,4 @@ def select_benchmark_countries(
     except Exception:
         log.exception("FDI benchmark selector failed for %s", target)
         return fallback
+

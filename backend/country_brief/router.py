@@ -16,7 +16,7 @@ from backend.models.schemas import CountryBriefGenerateRequest, CountryBriefRefi
 from backend.country_brief.pipeline import (
     run_pipeline, recompute_fdi_benchmark, get_fdi_cache_entry, set_fdi_cache_entry,
 )
-from backend.country_brief.agents.brief_writer import stream_refine
+from backend.country_brief.brief_writer import stream_refine
 
 log = logging.getLogger(__name__)
 

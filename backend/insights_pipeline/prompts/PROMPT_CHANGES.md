@@ -7,7 +7,7 @@ Append-only log for lab prompt updates. Do not edit past entries; add a new entr
 - Added baseline system, style, KPI context, reasoning, and causal language prompt files.
 - Set model profile metadata in `manifest.yaml` for reproducible prompt+model snapshots.
 
-## [SB-001] 2026-05-04 — system_base.md (0.1.1)
+## [SB-001] 2026-05-04 - system_base.md (0.1.1)
 
 **Change**
 - First system prompt developed from scratch
@@ -23,13 +23,13 @@ Append-only log for lab prompt updates. Do not edit past entries; add a new entr
 **Impact**
 - Improves analytical depth and consistency across long time horizons.
 
-## [SG-001] 2026-05-04 — style_guide.md (0.1.1)
+## [SG-001] 2026-05-04 - style_guide.md (0.1.1)
 
 **Change**
 - Created initial style guide for macroeconomic briefs
 - Enforced bullet + sub-bullet structure with one idea per bullet
 - Added CXO-focused writing requirement (clarity and speed of understanding)
-- Introduced “so what” / answer-first framing with allowance for movement-led structure
+- Introduced "so what" / answer-first framing with allowance for movement-led structure
 - Added rule to balance observation (data movement) with implication and analysis
 - Enforced concise, non-redundant, no-filler writing
 - Added comparative framing and precise directional language
@@ -44,12 +44,12 @@ Append-only log for lab prompt updates. Do not edit past entries; add a new entr
 - Increases consistency in insight structure across the pipeline
 - Reduces verbosity and redundancy
 
-## [RP-001] 2026-05-04 — reasoning_playbook.md (0.1.1)
+## [RP-001] 2026-05-04 - reasoning_playbook.md (0.1.1)
 
 **Change**
 - First test of reasoning_distillation workflow
 - Created initial reasoning playbook based on IMF Article IV analysis patterns
-- Defined core reasoning loop: signal → driver → mechanism → impact → offsets → net effect → risks → implication
+- Defined core reasoning loop: signal -> driver -> mechanism -> impact -> offsets -> net effect -> risks -> implication
 - Added rules for:
   - separating driver vs. mechanism
   - identifying transmission channels and second-round effects

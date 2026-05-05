@@ -10,16 +10,16 @@
       "sha256": "0a5d7fc7682bc1e2401eaf7234e538713c5c8375c92f58fd30619ef6e6967e7e"
     },
     "reasoning_playbook.md": {
-      "chars": 498,
-      "sha256": "3afff024957a5826e7ecc961af0754a88b0a1e3dc5457ec572bc6806aabfb57e"
+      "chars": 2519,
+      "sha256": "e821cf9940a3fbc9a93c4df9e26b4c467a3d482de49403c70154bf2ffa69c43e"
     },
     "style_guide.md": {
-      "chars": 289,
-      "sha256": "121a39744566c35de411f9bbbb1e30fdca15ba32d2bff94447142dce5cc6807d"
+      "chars": 1543,
+      "sha256": "54f5f4e0a802ad76800916f429da8a1e34474e31e7efcfaefebe9dcbde4360d9"
     },
     "system_base.md": {
-      "chars": 406,
-      "sha256": "ba3b97642d2fce80d012d4fed262cfc17092684272a029e3369037ecce86c5ff"
+      "chars": 1221,
+      "sha256": "a988a356700063242059410cf5da0ab5452270ec1361d7c0d73a1549e564e393"
     }
   }
 }

@@ -1,31 +1,25 @@
 """HTTP endpoints for lab pipeline."""
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
+from backend.insights_pipeline.runtime import load_prompt_manifest
 from backend.lab.pipeline import run_pipeline
 from backend.lab.schemas import LabGenerateRequest
-from backend.lab.workflow.common import BRIEF_MODEL, REASONING_MODEL
+from backend.insights_pipeline.stages.common import BRIEF_MODEL, REASONING_MODEL
 from backend.services.cost_tracker import MODEL_PRICING
 
 router = APIRouter(prefix="/api/lab", tags=["lab"])
-PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 
 
 def _load_prompt_manifest() -> dict[str, Any]:
-    manifest_path = PROMPTS_DIR / "manifest.yaml"
-    if not manifest_path.exists():
+    manifest, _error = load_prompt_manifest()
+    if not manifest:
         return {}
-    try:
-        parsed = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return {}
-    return parsed if isinstance(parsed, dict) else {}
+    return manifest
 
 
 def _lookup_model_cost(model_name: str) -> tuple[float, float] | None:

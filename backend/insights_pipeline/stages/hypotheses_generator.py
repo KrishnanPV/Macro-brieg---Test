@@ -1,10 +1,10 @@
-"""Hypothesis generation step for lab workflow."""
+"""Hypothesis generation step for insights workflow."""
 from __future__ import annotations
 
 import json
 from typing import Any
 
-from backend.lab.workflow.common import REASONING_MODEL, call_json_model, get_kpi_context, load_prompt
+from backend.insights_pipeline.stages.common import REASONING_MODEL, call_json_model, get_kpi_context, load_prompt
 
 
 def run_step(
@@ -16,10 +16,11 @@ def run_step(
     end_year: int,
     selected_signals: list[dict[str, Any]],
     reasoning_model: str = REASONING_MODEL,
+    kpi_context_override: str | None = None,
 ) -> dict[str, Any]:
     """Generate broad causal hypotheses for the selected KPI signals."""
     per_kpi_prompt = load_prompt("per_kpi_context.md")
-    kpi_context = get_kpi_context(kpi_id)
+    kpi_context = kpi_context_override if kpi_context_override is not None else get_kpi_context(kpi_id)
     system_prompt = (
         "You are a macro hypothesis generator.\n"
         "Given KPI signal evidence, generate broad but testable causal hypotheses.\n"
@@ -42,7 +43,7 @@ def run_step(
         model=reasoning_model,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
-        caller="lab.hypotheses_generator",
+        caller="insights_pipeline.hypotheses_generator",
         include_call_meta=True,
     )
     hypotheses = parsed.get("hypotheses", [])

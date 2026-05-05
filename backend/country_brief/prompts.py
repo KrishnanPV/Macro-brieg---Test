@@ -4,10 +4,10 @@ from __future__ import annotations
 from functools import lru_cache
 import json
 import logging
-from pathlib import Path
 import re
 from typing import Any
 
+from backend.insights_pipeline.runtime import PROMPTS_DIR, load_prompt_manifest, load_prompt_text
 from backend.models.kpi_registry import INSIGHT_LENSES, sorted_kpi_ids
 from backend.services.news_client import flatten_news_catalog
 
@@ -27,9 +27,6 @@ Follow OUTPUT_CONTRACT_JSON exactly.
 Write concise, causal, decision-oriented prose grounded in the provided data.
 Return only the marked brief content. No preamble or meta commentary.
 """
-
-_LAB_PROMPTS_DIR = Path(__file__).resolve().parents[1] / "lab" / "prompts"
-_LAB_PROMPT_MANIFEST = _LAB_PROMPTS_DIR / "manifest.yaml"
 
 FOCUS_ADDENDUM_TEMPLATE = """\
 
@@ -195,32 +192,9 @@ def _compact_lenses_payload(notable_kpi_ids: list[str], kpi_units: dict[str, str
 @lru_cache(maxsize=1)
 def _load_lab_brief_writer_guidelines() -> str:
     """Load lab brief-writer style/system prompts from manifest."""
-    if not _LAB_PROMPT_MANIFEST.exists():
-        return ""
-
-    try:
-        manifest_raw = _LAB_PROMPT_MANIFEST.read_text(encoding="utf-8").strip()
-    except OSError as exc:
-        log.warning("Failed reading lab manifest for brief guidelines: %s", exc)
-        return ""
-
-    manifest: dict[str, Any] | None = None
-    try:
-        parsed = json.loads(manifest_raw)
-        if isinstance(parsed, dict):
-            manifest = parsed
-    except json.JSONDecodeError:
-        try:
-            import yaml  # type: ignore
-
-            parsed = yaml.safe_load(manifest_raw)
-            if isinstance(parsed, dict):
-                manifest = parsed
-        except Exception as exc:
-            log.warning("Failed parsing lab prompt manifest: %s", exc)
-            return ""
-
-    if not manifest:
+    manifest, manifest_error = load_prompt_manifest()
+    if manifest_error:
+        log.warning("Failed loading insights prompt manifest for brief guidelines: %s", manifest_error)
         return ""
 
     prompt_entries = manifest.get("prompts")
@@ -244,13 +218,7 @@ def _load_lab_brief_writer_guidelines() -> str:
 
     blocks: list[str] = []
     for file_name in selected_files:
-        file_path = _LAB_PROMPTS_DIR / file_name
-        if not file_path.exists():
-            continue
-        try:
-            content = file_path.read_text(encoding="utf-8").strip()
-        except OSError:
-            continue
+        content = load_prompt_text(file_name)
         if not content:
             continue
         blocks.append(f"[{file_name}]\n{content}")
@@ -258,7 +226,7 @@ def _load_lab_brief_writer_guidelines() -> str:
     if not blocks:
         return ""
     return (
-        "LAB BRIEF WRITER GUIDELINES (from backend/lab/prompts/manifest.yaml):\n"
+        f"LAB BRIEF WRITER GUIDELINES (from {PROMPTS_DIR.as_posix()}/manifest.yaml):\n"
         + "\n\n".join(blocks)
     )
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 
-from backend.lab.workflow.common import PROMPTS_DIR
+from backend.insights_pipeline.stages.common import PROMPTS_DIR
 
 VALID_WORKFLOW_STEPS = {
     "signal_extractor",

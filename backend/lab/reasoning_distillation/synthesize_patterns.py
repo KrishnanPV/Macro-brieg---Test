@@ -12,7 +12,7 @@ if __package__ in {None, ""}:
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
 
-from backend.lab.workflow.common import REASONING_MODEL, call_text_model
+from backend.insights_pipeline.stages.common import REASONING_MODEL, call_text_model
 
 REQUIRED_FIELDS = (
     "signal",

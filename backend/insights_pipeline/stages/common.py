@@ -1,14 +1,14 @@
-"""Shared helpers for lab workflow steps."""
+"""Shared helpers for insights pipeline stages."""
 from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 from typing import Any
 
 from openai import OpenAI
 
 from backend.config import OPENAI_API_KEY, OPENAI_BASE_URL, PERPLEXITY_API_KEY, PERPLEXITY_URL
+from backend.insights_pipeline.runtime import PROMPTS_DIR, load_prompt_text
 from backend.models.kpi_registry import INSIGHT_LENSES, SPECS_BY_ID
 from backend.services.cost_tracker import estimate_usage_cost, record_usage
 
@@ -18,8 +18,6 @@ REASONING_MODEL = "gpt-5.3-chat-latest"
 BRIEF_MODEL = "gpt-4.1-mini"
 NEWS_MODEL = "sonar"
 
-PROMPTS_DIR = Path(__file__).resolve().parents[1] / "prompts"
-
 
 def ndjson(obj: dict[str, Any]) -> str:
     """Convert an event object into one NDJSON line."""
@@ -27,11 +25,8 @@ def ndjson(obj: dict[str, Any]) -> str:
 
 
 def load_prompt(file_name: str) -> str:
-    """Load a markdown prompt file from backend/lab/prompts."""
-    path = PROMPTS_DIR / file_name
-    if not path.exists():
-        return ""
-    return path.read_text(encoding="utf-8").strip()
+    """Load a markdown prompt file from backend/insights_pipeline/prompts."""
+    return load_prompt_text(file_name)
 
 
 def build_prompt_bundle() -> dict[str, str]:

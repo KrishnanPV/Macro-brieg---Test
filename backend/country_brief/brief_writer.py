@@ -1,13 +1,6 @@
-"""Agent 3 — Brief Writer.
-
-Single streaming GPT call that combines KPI data, signal interpretation,
-and (optionally) Perplexity research into a structured country brief.
-Also owns the block parser that converts raw LLM markers into typed blocks,
-and the section-refinement chat.
-"""
+"""Country brief writer and parser utilities."""
 from __future__ import annotations
 
-import json
 import logging
 import re
 from typing import Any, Iterator
@@ -15,15 +8,11 @@ from typing import Any, Iterator
 from openai import OpenAI
 
 from backend.config import OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL
-from backend.country_brief.prompts import build_brief_prompt, build_refine_prompt
+from backend.country_brief.prompts import build_refine_prompt
 from backend.services.cost_tracker import record_usage
 
 log = logging.getLogger(__name__)
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def _get_client() -> OpenAI:
     if not OPENAI_API_KEY:
@@ -39,10 +28,6 @@ def _model_kwargs(model: str) -> dict[str, Any]:
         return {}
     return {"temperature": 0.3}
 
-
-# ---------------------------------------------------------------------------
-# Block parser — converts raw LLM text with markers into typed blocks
-# ---------------------------------------------------------------------------
 
 _METRICS_RE = re.compile(r"\[METRICS_RIBBON\](.*?)\[/METRICS_RIBBON\]", re.DOTALL)
 _EXEC_RE = re.compile(r"\[EXEC_SUMMARY\](.*?)\[/EXEC_SUMMARY\]", re.DOTALL)
@@ -87,11 +72,7 @@ _CHART_ORDER: dict[str, int] = {"3": 0, "2": 1, "11": 2}
 
 
 def _reorder_section_charts(children: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Sort chart_ref blocks by the preferred GDP display order.
-
-    Non-GDP charts keep their original relative position after the
-    ordered GDP charts.  Narrative blocks are left in place.
-    """
+    """Sort chart_ref blocks by the preferred GDP display order."""
     charts = [c for c in children if c.get("type") == "chart_ref"]
     if len(charts) <= 1:
         return children
@@ -163,19 +144,8 @@ def parse_brief_blocks(raw_text: str) -> list[dict[str, Any]]:
     return blocks
 
 
-# ---------------------------------------------------------------------------
-# Streaming brief generation
-# ---------------------------------------------------------------------------
-
-def stream_brief(
-    messages: list[dict[str, str]],
-) -> Iterator[tuple[str, str]]:
-    """Stream the brief, yielding (event_type, payload) tuples.
-
-    Yields:
-        ("text_delta", chunk)  — incremental text
-        ("full_text", text)    — final accumulated text (last yield)
-    """
+def stream_brief(messages: list[dict[str, str]]) -> Iterator[tuple[str, str]]:
+    """Stream the brief as text deltas, then final full text."""
     client = _get_client()
     model = OPENAI_MODEL
 
@@ -203,20 +173,13 @@ def stream_brief(
     yield ("full_text", full_text)
 
 
-# ---------------------------------------------------------------------------
-# Section refinement
-# ---------------------------------------------------------------------------
-
 def stream_refine(
     section_content: str,
     data_context: dict[str, Any],
     message: str,
     history: list[dict[str, str]] | None = None,
 ) -> Iterator[tuple[str, str]]:
-    """Stream a section-refinement response.
-
-    Yields ("text", chunk) and finally ("done", "").
-    """
+    """Stream a section-refinement response."""
     messages = build_refine_prompt(
         section_content=section_content,
         data_context=data_context,
@@ -248,3 +211,4 @@ def stream_refine(
 
     record_usage(model, usage, caller="brief_writer.stream_refine")
     yield ("done", "")
+
