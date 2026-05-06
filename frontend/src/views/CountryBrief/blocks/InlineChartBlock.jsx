@@ -360,6 +360,20 @@ export default function InlineChartBlock({
     return { seriesKeys: sk, rows: r, kpiName: name, unitLabel: unit }
   }, [kpiResult, activeSeries, isOilGdpSplit])
 
+  const displayUnitLabel = useMemo(() => {
+    if (!unitLabel) return ''
+    const trimmed = unitLabel.trim()
+    if (trimmed.startsWith('%')) {
+      if (isQuarterly && /\/\s*year/i.test(trimmed)) return trimmed.replace(/\/\s*year/i, '/ quarter')
+      if (!isQuarterly && /\/\s*quarter/i.test(trimmed)) return trimmed.replace(/\/\s*quarter/i, '/ year')
+    }
+    // When the unit is a bare scale word (e.g. "thousands" for population),
+    // the chart rescales to absolute and the axis shows M/B suffixes.
+    // Replace with "millions" so the label matches the displayed magnitude.
+    if (/^thousands?$/i.test(trimmed)) return 'millions'
+    return trimmed
+  }, [unitLabel, isQuarterly])
+
   const isPercentageUnit = unitLabel.trim().startsWith('%')
 
   const oilByYear = useMemo(() => {
@@ -518,8 +532,8 @@ export default function InlineChartBlock({
                 {kpiName}
               </p>
             </div>
-            {unitLabel && (
-              <p className="text-[10px] text-slate-400 leading-tight mt-0.5">{unitLabel}</p>
+            {displayUnitLabel && (
+              <p className="text-[10px] text-slate-400 leading-tight mt-0.5">{displayUnitLabel}</p>
             )}
           </div>
           <div className="flex items-center gap-1.5">

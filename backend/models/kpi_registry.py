@@ -382,13 +382,17 @@ CURRENCY_NAMES: dict[str, str] = {
 }
 
 
-def resolve_unit_label(raw_unit: str, country_iso3: str = "") -> str:
+_STRIP_PRICE_QUALIFIER_KPIS = frozenset(("1",))
+
+
+def resolve_unit_label(raw_unit: str, country_iso3: str = "", *, kpi_id: str = "") -> str:
     """Turn Oxford's raw unit string into a concise, country-resolved label.
 
     Examples:
         'Riyal, Millions: 2023 prices' → 'SAR millions (2023 prices)'
+        'Riyal, Millions: 2023 prices' → 'SAR millions'  (kpi_id="1", qualifier stripped)
         'US$, Millions'                → 'USD millions'
-        '% year'                       → '% year'
+        '% year'                       → '% / year'
         'Person, Thousands'            → 'thousands'
     """
     if not raw_unit:
@@ -418,12 +422,14 @@ def resolve_unit_label(raw_unit: str, country_iso3: str = "") -> str:
 
     lower = text.lower()
 
+    strip_qual = kpi_id in _STRIP_PRICE_QUALIFIER_KPIS
+
     # US$ → USD directly
     if lower.startswith("us$"):
         rest = text[3:].strip().lstrip(",").strip()
         parts = rest.split(":")
         scale_part = parts[0].strip().lower() if parts else ""
-        qualifier = parts[1].strip() if len(parts) > 1 else ""
+        qualifier = parts[1].strip() if len(parts) > 1 and not strip_qual else ""
         label = f"USD {scale_part}" if scale_part else "USD"
         if qualifier:
             label += f" ({qualifier})"
@@ -435,14 +441,17 @@ def resolve_unit_label(raw_unit: str, country_iso3: str = "") -> str:
             rest = text.split(",", 1)[1].strip() if "," in text else ""
             parts = rest.split(":")
             scale_part = parts[0].strip().lower() if parts else ""
-            qualifier = parts[1].strip() if len(parts) > 1 else ""
+            qualifier = parts[1].strip() if len(parts) > 1 and not strip_qual else ""
             label = f"{code} {scale_part}" if scale_part else code
             if qualifier:
                 label += f" ({qualifier})"
             return label
 
-    # Percentages
+    # Percentages — normalise "% year" → "% / year", "% quarter" → "% / quarter"
     if lower.startswith("%"):
+        rest = text[1:].strip()
+        if rest and not rest.startswith("/"):
+            return f"% / {rest}"
         return text
 
     # Person / headcount
