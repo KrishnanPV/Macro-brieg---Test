@@ -20,6 +20,42 @@ _KPI_ID_RE = re.compile(r"\bKPI\s*([0-9]+)\b", re.IGNORECASE)
 _AGGREGATION_SERIES_POLICY = "prefer_annual_then_native"
 
 
+def _payload_has_series(payload: dict[str, Any]) -> bool:
+    for key in ("series_annual", "series"):
+        rows = payload.get(key)
+        if isinstance(rows, list) and rows:
+            return True
+    return False
+
+
+def _build_gdp_l2_addendum(
+    selected_kpi_ids: list[str],
+    kpi_results: dict[str, dict[str, Any]],
+) -> str:
+    selected = set(selected_kpi_ids)
+    lines = [
+        "GDP L2 guidance:",
+        "- Use a top-down storyline: overall growth arc first, then key drivers, then implications.",
+        "- Link each growth claim to a concrete driver present in the selected KPI payload.",
+        "- Mention volatility only when swings are materially uneven; for smooth trends, emphasize persistence.",
+    ]
+
+    driver_lines: list[str] = []
+    if "2" in selected:
+        driver_lines.append("- If KPI 2 is present, decompose growth into oil and non-oil real-volume contributions.")
+    if "11" in selected:
+        driver_lines.append("- If KPI 11 is present, identify which real sectors are driving the aggregate path.")
+    if "10" in selected and _payload_has_series(dict(kpi_results.get("10") or {})):
+        driver_lines.append(
+            "- If KPI 10 data is present, use expenditure decomposition (private consumption, fixed investment, exports, imports) to explain growth peaks/troughs."
+        )
+    if not driver_lines:
+        driver_lines.append("- If decomposition KPIs are absent, keep GDP claims aggregate and avoid unsupported component attribution.")
+    lines.extend(driver_lines)
+    lines.append("- Keep real-vs-nominal discipline: do not treat price moves as evidence of real GDP volume changes.")
+    return "\n".join(lines)
+
+
 def _as_dict_list(items: Any) -> list[dict[str, Any]]:
     if not isinstance(items, list):
         return []
@@ -142,6 +178,8 @@ def _build_bundle_kpi_context(
         per_kpi_context = get_kpi_context(kid)
         if per_kpi_context:
             context_lines.append(per_kpi_context)
+        if kid == "3":
+            context_lines.append(_build_gdp_l2_addendum(selected_kpi_ids, kpi_results))
         sections.append("\n".join(context_lines).strip())
     return "\n\n---\n\n".join(section for section in sections if section)
 

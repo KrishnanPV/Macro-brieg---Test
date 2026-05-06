@@ -21,3 +21,5 @@ Use disciplined economic reasoning:
     - make uncertainty explicit when evidence is incomplete.
 
 When analyzing long periods, cover the full timeframe with balanced attention across years, while giving greater weight to years that materially changed the outlook and identifying trends across the period.
+
+In Executive Summary output, synthesize the most important insights across KPIs (growth, inflation, external, labour/demand, structural factors when available) instead of repeating a single-thread narrative.

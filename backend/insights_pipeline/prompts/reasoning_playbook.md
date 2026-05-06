@@ -14,6 +14,9 @@ Signal (what changed) -> shock/driver → transmission mechanism → impact on a
 - Tie conclusions to actionable policy stance (tighten/loosen/maintain; reforms).
 - Check consistency across accounts (growth vs. inflation vs. fiscal/external).
 - Update persistence assumptions as shocks fade or propagate.
+- Use top-down ordering in each insight: main movement -> key drivers -> transmission -> implication.
+- For GDP analysis, explicitly connect aggregate growth to available decomposition evidence before broader narrative claims.
+- Mention volatility only when material; if the trend is smooth, frame it as persistence rather than oscillation.
 
 ## Common Reasoning Patterns
 - Event Unwind: one-off boost → demand withdrawal → sectoral cooling → growth normalization; use after mega-events or temporary stimuli.

@@ -1,7 +1,7 @@
 {
   "manifest_version": 1,
-  "prompt_bundle_version": "0.1.0",
-  "updated_at": "2026-05-03",
+  "prompt_bundle_version": "0.1.3",
+  "updated_at": "2026-05-05",
   "models": {
     "reasoning": "gpt-5.3-chat-latest",
     "brief_writer": "gpt-4.1-mini",
@@ -24,25 +24,25 @@
     {
       "id": "system_base",
       "file": "system_base.md",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "used_by": ["hypotheses_generator", "insights_generator", "brief_writer"]
     },
     {
       "id": "style_guide",
       "file": "style_guide.md",
-      "version": "0.1.1",
+      "version": "0.1.4",
       "used_by": ["brief_writer"]
     },
     {
       "id": "per_kpi_context",
       "file": "per_kpi_context.md",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "used_by": ["hypotheses_generator"]
     },
     {
       "id": "reasoning_playbook",
       "file": "reasoning_playbook.md",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "used_by": ["insights_generator", "evaluator"]
     },
     {

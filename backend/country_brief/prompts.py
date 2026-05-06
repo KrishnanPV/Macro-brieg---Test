@@ -66,6 +66,7 @@ _CORE_CONTRACT = {
         "keep_inflation_and_labour_separate": True,
         "target_top_level_bullets_per_section": "3-5",
         "first_bullet_policy": "Start with one bolded governing sentence, then evidence.",
+        "sub_bullet_policy": "Use indented sub-bullets for supporting evidence/mechanisms whenever possible; keep standalone bullets only when support detail is genuinely minimal.",
     },
     "outlook_subheads_required": ["**Tailwinds**", "**Headwinds**", "**Net Assessment**"],
 }

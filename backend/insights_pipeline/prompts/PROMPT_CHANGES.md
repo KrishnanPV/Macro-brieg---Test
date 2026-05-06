@@ -65,3 +65,54 @@ Append-only log for lab prompt updates. Do not edit past entries; add a new entr
 **Impact**
 - Standardizes reasoning across pipeline steps
 - Improves causal clarity, consistency, and robustness of insights
+
+## [GDP-L2-001] 2026-05-05 - per_kpi_context.md (0.1.1), reasoning_playbook.md (0.1.2), style_guide.md (0.1.2)
+
+**Change**
+- Updated `per_kpi_context.md` to add top-down storyline guidance and KPI-3-specific decomposition instructions.
+- Added explicit direction for GDP driver mapping using available splits (oil/non-oil, sector, expenditure when present).
+- Added volatility gating (only mention volatility when materially supported) and real-vs-nominal discipline language.
+- Updated `reasoning_playbook.md` with required top-down ordering for insight construction.
+- Updated `style_guide.md` to require a bold lead sentence for each top-level bullet and tighter sub-bullet usage.
+
+**Reason**
+- Improve GDP L2 insight quality with explicit driver linkage and clearer narrative structure.
+- Reduce descriptive or noisy commentary by enforcing meaningful volatility references only.
+- Improve executive readability by making top-level claims clearer and evidence hierarchy more consistent.
+
+**Impact**
+- More consistent growth narratives: trend -> drivers -> implication.
+- Better alignment between hypothesis generation and final brief writing style.
+- Clearer bullet hierarchy with stronger claim-first structure.
+
+## [EXEC-SUM-001] 2026-05-05 - system_base.md (0.1.2), style_guide.md (0.1.3)
+
+**Change**
+- Updated `style_guide.md` with explicit Executive Summary requirements:
+  - 4-6 substantive bullets (beefier synthesis),
+  - cross-KPI coverage,
+  - each line starts with a bold lead phrase followed by the analytical point.
+- Updated `system_base.md` to require Executive Summary synthesis across major KPI domains instead of a single-thread narrative.
+
+**Reason**
+- Improve Executive Summary usefulness for decision-makers by increasing breadth and depth in a compact format.
+- Enforce consistent line structure for faster scanability.
+
+**Impact**
+- Executive summaries should be more comprehensive and better balanced across KPIs.
+- Stronger, more consistent formatting with bold lead-in on every line.
+
+## [SUB-BULLET-001] 2026-05-05 - style_guide.md (0.1.4)
+
+**Change**
+- Strengthened section-body guidance so non-executive sections default to parent bullet + 1-2 indented sub-bullets when supporting evidence exists.
+- Clarified structure split: parent bullet carries the claim; sub-bullets carry evidence, mechanism, and implication.
+- Kept flexibility for standalone claims where sub-bullets would be artificial.
+
+**Reason**
+- Restore sub-bullet presentation in the insights body after recent style tightening led to flatter bullet lists.
+- Preserve readability while improving analytical hierarchy.
+
+**Impact**
+- More consistent nested bullet structure in body sections.
+- Better separation of headline insight vs supporting proof/mechanism.
