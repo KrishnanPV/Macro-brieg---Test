@@ -1,6 +1,20 @@
 import { MessageSquare } from 'lucide-react'
 import { interleaveSources } from '../../../lib/interleaveSources.jsx'
 
+const CHART_LABEL_TOKEN_RE = /(\b\d+[A-Z]\b)/g
+const CHART_LABEL_ONLY_RE = /^\d+[A-Z]$/
+
+function italicizeChartLabels(text, keyPrefix = 'lbl') {
+  if (!text) return text
+  const parts = String(text).split(CHART_LABEL_TOKEN_RE)
+  if (parts.length === 1) return text
+  return parts.map((part, i) => (
+    CHART_LABEL_ONLY_RE.test(part)
+      ? <em key={`${keyPrefix}-${i}`} className="italic">{part}</em>
+      : part
+  ))
+}
+
 function inlineFmt(s, newsCatalog) {
   const parts = s.split(/(\*\*[^*]+\*\*)/g)
   return parts.map((p, i) => {
@@ -21,7 +35,7 @@ function inlineFmt(s, newsCatalog) {
 function highlightDataPoints(text, baseKey) {
   const pattern = /(-?\d+[\d,]*\.?\d*\s*%|(?:SAR|USD|EUR|GBP)\s*[\d,.]+\s*(?:bn|mn|billion|million)?|\d+\.?\d*\s*(?:billion|million|mn|bn|bpd|pp|percentage points))/gi
   const parts = text.split(pattern)
-  return parts.map((part, i) => {
+  return parts.flatMap((part, i) => {
     if (i % 2 === 1) {
       return (
         <span
@@ -33,7 +47,7 @@ function highlightDataPoints(text, baseKey) {
         </span>
       )
     }
-    return part
+    return italicizeChartLabels(part, `${baseKey}-${i}`)
   })
 }
 
