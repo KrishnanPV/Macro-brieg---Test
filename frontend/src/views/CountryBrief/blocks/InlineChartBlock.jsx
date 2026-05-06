@@ -620,7 +620,7 @@ export default function InlineChartBlock({
           )}
           <ResponsiveContainer width="100%" height={chartHeight}>
             <ComposedChart key={`${activeVizMode}-${freq}`} data={chartRows}
-              margin={{ top: 5, right: hasOilOverlay ? 20 : 10, bottom: 0, left: 0 }}>
+              margin={{ top: activeVizMode === 'line' ? 18 : 5, right: hasOilOverlay ? 20 : 10, bottom: 0, left: 0 }}>
               {activeVizMode === 'line' && (
                 <defs>
                   {seriesKeys.map(sk => (
@@ -653,7 +653,7 @@ export default function InlineChartBlock({
                   <ReferenceArea y1={2} y2={999} yAxisId="left" fill="#fef2f2" fillOpacity={0.5} ifOverflow="hidden" />
                   <ReferenceArea y1={-999} y2={2} yAxisId="left" fill="#f0fdf4" fillOpacity={0.4} ifOverflow="hidden" />
                   <ReferenceLine y={2} yAxisId="left" stroke="#94a3b8" strokeDasharray="4 3"
-                    label={{ value: '2%', position: 'left', fontSize: 9, fill: '#64748b' }} />
+                    label={{ value: '2%', position: 'insideTopLeft', fontSize: 9, fill: '#64748b', fontFamily: 'inherit' }} />
                 </>
               )}
               {activeVizMode === 'bar'
@@ -662,7 +662,7 @@ export default function InlineChartBlock({
                       <Bar dataKey={fdiInwardKey} fill={seriesKeys.find(sk => sk.key === fdiInwardKey)?.color || SERIES_COLORS[0]} yAxisId="left" name={fdiInwardKey}
                         label={(props) => {
                           if (!keyPointIndices.has(props.index)) return null
-                          return <text x={props.x + props.width / 2} y={props.y - 4} textAnchor="middle" fontSize={8} fontWeight={600} fill="#334155">{formatAbbrevNumber(props.value)}</text>
+                          return <text x={props.x + props.width / 2} y={props.y + props.height / 2} textAnchor="middle" dominantBaseline="middle" fontSize={8} fontWeight={600} fill="#ffffff">{formatAbbrevNumber(props.value)}</text>
                         }} />
                       <Bar dataKey="__fdi_outward_neg__" fill={seriesKeys.find(sk => sk.key === fdiOutwardKey)?.color || SERIES_COLORS[1]} yAxisId="left" name={fdiOutwardKey} />
                       <Line type="linear" dataKey={NET_FDI_KEY} yAxisId="left" stroke={NET_FDI_COLOR}
@@ -672,7 +672,7 @@ export default function InlineChartBlock({
                       <Bar key={sk.key} dataKey={sk.key} fill={sk.color} stackId="a" yAxisId="left"
                         label={skIdx === 0 ? (props) => {
                           if (!keyPointIndices.has(props.index)) return null
-                          return <text x={props.x + props.width / 2} y={props.y - 4} textAnchor="middle" fontSize={8} fontWeight={600} fill="#334155">{formatAbbrevNumber(props.value)}</text>
+                          return <text x={props.x + props.width / 2} y={props.y + props.height / 2} textAnchor="middle" dominantBaseline="middle" fontSize={8} fontWeight={600} fill="#ffffff">{formatAbbrevNumber(props.value)}</text>
                         } : false} />
                     ))
                 )
