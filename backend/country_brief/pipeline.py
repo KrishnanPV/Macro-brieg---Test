@@ -133,6 +133,7 @@ def _ensure_chart_blocks(
 
 _KPI_SECTION_ORDER = {
     "3": 1, "2": 1, "11": 1, "1": 1,
+    "2-oil": 1,
     "4": 2, "8": 2,
     "7": 3,
     "5": 4, "6": 4,
@@ -140,7 +141,7 @@ _KPI_SECTION_ORDER = {
 }
 
 _KPI_DISPLAY_ORDER: dict[str, int] = {
-    "3": 0, "2": 1, "11": 2, "1": 3,
+    "3": 0, "2": 1, "2-oil": 2, "11": 3, "1": 4,
     "4": 0, "8": 1,
     "7": 0,
     "5": 0, "6": 1,
@@ -281,6 +282,14 @@ def _compute_exhibit_map(notable_kpi_ids: list[str]) -> dict[str, str]:
     return exhibit_map
 
 
+def _build_exhibit_kpi_ids(*, notable_kpi_ids: list[str], is_gcc: bool) -> list[str]:
+    """Build KPI IDs used for exhibit numbering, including GCC oil split when needed."""
+    ids = [str(k).strip() for k in notable_kpi_ids if str(k).strip()]
+    if is_gcc and "2" in ids and "2-oil" not in ids:
+        ids.append("2-oil")
+    return ids
+
+
 def _assign_exhibit_labels(blocks: list[dict[str, Any]], exhibit_map: dict[str, str]) -> None:
     """Attach exhibit_label to each chart_ref block in-place."""
     for block in blocks:
@@ -292,6 +301,27 @@ def _assign_exhibit_labels(blocks: list[dict[str, Any]], exhibit_map: dict[str, 
                 label = exhibit_map.get(kid)
                 if label:
                     child["exhibit_label"] = label
+
+
+def _check_exhibit_label_sequence(blocks: list[dict[str, Any]]) -> list[str]:
+    """Validate section exhibit labels are contiguous (A, B, C...) without gaps."""
+    issues: list[str] = []
+    for block in blocks:
+        if block.get("type") != "section":
+            continue
+        labels = [
+            str(child.get("exhibit_label", "")).strip()
+            for child in block.get("children") or []
+            if child.get("type") == "chart_ref"
+        ]
+        if not labels:
+            continue
+        expected_prefix = labels[0][:-1]
+        for idx, label in enumerate(labels):
+            expected_label = f"{expected_prefix}{chr(ord('A') + idx)}"
+            if label != expected_label:
+                issues.append(f"{block.get('title', 'section')}:{label}->{expected_label}")
+    return issues
 
 
 def _is_demographics_section_title(title: str) -> bool:
@@ -365,12 +395,8 @@ def _inject_oil_gdp_split(blocks: list[dict[str, Any]], is_gcc: bool, exhibit_ma
                 insert_after = i
                 break
         if insert_after is not None:
-            oil_label = None
-            if "2" in exhibit_map:
-                base_sec = exhibit_map["2"][0]
-                existing_in_sec = sum(1 for c in children if c.get("type") == "chart_ref")
-                oil_label = f"{base_sec}{chr(ord('A') + existing_in_sec)}"
             oil_chart = {"type": "chart_ref", "kpi_id": "2-oil"}
+            oil_label = exhibit_map.get("2-oil")
             if oil_label:
                 oil_chart["exhibit_label"] = oil_label
             children.insert(insert_after + 1, oil_chart)
@@ -395,8 +421,9 @@ def run_pipeline(
     available_ids = [kid for kid in available_ids if kid in {s.id for s in SPECS if s.source == "oxford"}]
     if not available_ids:
         available_ids = all_oxford_ids
+    is_gcc = req.country.upper() in _GCC_CODES
     # Automatic + GCC: always fetch oil/non-oil; other economies rely on triage-only selection.
-    if not manual_selection and req.country.upper() in _GCC_CODES:
+    if not manual_selection and is_gcc:
         if _OIL_NON_OIL_KPI not in available_ids:
             available_ids.append(_OIL_NON_OIL_KPI)
     timerange = f"{req.start_year}-{req.end_year}"
@@ -594,7 +621,8 @@ def run_pipeline(
             "supports a structural claim. Keep citations sparse and evidence-linked.\n\n"
         )
 
-    exhibit_map = _compute_exhibit_map(notable_ids)
+    exhibit_kpi_ids = _build_exhibit_kpi_ids(notable_kpi_ids=notable_ids, is_gcc=is_gcc)
+    exhibit_map = _compute_exhibit_map(exhibit_kpi_ids)
     if exhibit_map:
         exhibit_lines = ", ".join(f"KPI {k} = ({v})" for k, v in sorted(exhibit_map.items()))
         injection += (
@@ -630,7 +658,10 @@ def run_pipeline(
     fallback_chart_ids = [kid for kid in available_ids if kid in ids_with_data]
     blocks = _ensure_chart_blocks(blocks, preferred_chart_ids=fallback_chart_ids)
     _assign_exhibit_labels(blocks, exhibit_map)
-    _inject_oil_gdp_split(blocks, req.country.upper() in _GCC_CODES, exhibit_map)
+    _inject_oil_gdp_split(blocks, is_gcc, exhibit_map)
+    exhibit_issues = _check_exhibit_label_sequence(blocks)
+    if exhibit_issues:
+        log.warning("Non-sequential exhibit labels detected: %s", "; ".join(exhibit_issues))
     computed_metrics = compute_ribbon_metrics(derived_facts)
     if computed_metrics:
         blocks = [b for b in blocks if b.get("type") != "metrics_ribbon"]
