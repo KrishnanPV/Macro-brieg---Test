@@ -34,3 +34,6 @@ Signal (what changed) -> shock/driver → transmission mechanism → impact on a
 - Double counting effects across sectors/accounts; reconcile aggregates.
 - Overstating precision; signal uncertainty and sensitivity to key assumptions.
 - Neglecting second-round effects; check confidence, investment, and financing spillovers.
+- Ignoring outlier effects; Example: Saudi 2022 GDP growth was a post-COVID rebound, so 2023–2026 should not be described as a “sharp decline” without broader macro context.
+- Forecasts treated as observed outcomes; Example: “Growth moderated again in 2026” where 2026 data is forecasted.  
+- Agent doesn't seem to be able to connect 'services-led reallocation' with 'non-oil growth', even though services is wholly non-oil

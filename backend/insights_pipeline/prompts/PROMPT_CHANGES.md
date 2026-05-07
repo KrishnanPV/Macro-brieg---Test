@@ -116,3 +116,19 @@ Append-only log for lab prompt updates. Do not edit past entries; add a new entr
 **Impact**
 - More consistent nested bullet structure in body sections.
 - Better separation of headline insight vs supporting proof/mechanism.
+
+## [RP-002] 2026-05-06 - reasoning_playbook.md (0.1.3)
+
+**Change**
+- Failure modes to avoid additions:
+  - Ignoring outlier effects; Example: Saudi 2022 GDP growth was a post-COVID rebound, so 2023–2026 should not be described as a “sharp decline” without broader macro context.
+  - Forecasts treated as observed outcomes; Example: “Growth moderated again in 2026” where 2026 data is forecasted.
+  - Agent doesn't seem to be able to connect 'services-led reallocation' with 'non-oil growth', even though services is wholly non-oil.
+
+**Reason**
+- Comments and suggestions provided before report sent out for review.
+
+**Impact**
+- Examples seem to have been understood better.
+- Need to consider if the point on forecasts is actually being reflected since perplexity search may pull 2026 data even when Oxford Economics tags the data as forecasted.
+- Can reword 3rd failure mode to start with a title
