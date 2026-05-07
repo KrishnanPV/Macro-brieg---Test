@@ -620,7 +620,7 @@ export default function InlineChartBlock({
           )}
           <ResponsiveContainer width="100%" height={chartHeight}>
             <ComposedChart key={`${activeVizMode}-${freq}`} data={chartRows}
-              margin={{ top: activeVizMode === 'line' ? 18 : 5, right: hasOilOverlay ? 20 : 10, bottom: 0, left: 0 }}>
+              margin={{ top: activeVizMode === 'line' ? 18 : 5, right: hasOilOverlay ? 36 : 24, bottom: 0, left: 0 }}>
               {activeVizMode === 'line' && (
                 <defs>
                   {seriesKeys.map(sk => (
@@ -633,7 +633,7 @@ export default function InlineChartBlock({
               )}
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
               <XAxis dataKey="date" ticks={ticks} interval={0} height={24} axisLine={{ stroke: '#e2e8f0' }}
-                padding={{ left: 4, right: 4 }}
+                padding={{ left: 8, right: 8 }}
                 {...(cagrResult
                   ? { tick: <CagrXAxisTick axisFmt={axisFmt} cagrResult={cagrResult} /> }
                   : { tickFormatter: axisFmt, tick: { fontSize: 10, fill: '#94a3b8', fontFamily: 'inherit' } }

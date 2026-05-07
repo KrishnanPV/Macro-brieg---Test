@@ -281,12 +281,23 @@ export default function CountryBrief() {
   <title>${safeCountry} - Country Brief</title>
   <style>${cssText}</style>
   <style>
+    :root {
+      --color-mck-navy: #051C2C;
+      --color-mck-blue: #2251FF;
+      --color-mck-deep: #24477F;
+      --color-mck-sky: #4B8BBE;
+      --color-mck-light: #7CA5C2;
+      --color-mck-pale: #A8BFD0;
+      --color-mck-body: #333333;
+    }
     body { margin: 0; background: #f8fafc; color: #0f172a; }
     .download-shell { max-width: 1280px; margin: 0 auto; padding: 24px 20px 40px; }
     .download-header { max-width: 56rem; margin: 0 auto 16px; }
+    .recharts-wrapper, .recharts-wrapper svg { overflow: visible !important; }
     @media print {
       body { background: #fff; }
       .download-shell { padding: 0; }
+      .recharts-wrapper, .recharts-wrapper svg { overflow: visible !important; }
     }
   </style>
 </head>
