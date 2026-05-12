@@ -1,6 +1,20 @@
 import { MessageSquare } from 'lucide-react'
 import { interleaveSources } from '../../../lib/interleaveSources.jsx'
 
+const CHART_LABEL_TOKEN_RE = /(\b\d+[A-Z]\b)/g
+const CHART_LABEL_ONLY_RE = /^\d+[A-Z]$/
+
+function italicizeChartLabels(text, keyPrefix = 'lbl') {
+  if (!text) return text
+  const parts = String(text).split(CHART_LABEL_TOKEN_RE)
+  if (parts.length === 1) return text
+  return parts.map((part, i) => (
+    CHART_LABEL_ONLY_RE.test(part)
+      ? <em key={`${keyPrefix}-${i}`} className="italic">{part}</em>
+      : part
+  ))
+}
+
 function inlineFmt(s, newsCatalog) {
   const parts = s.split(/(\*\*[^*]+\*\*)/g)
   return parts.map((p, i) => {
@@ -21,7 +35,7 @@ function inlineFmt(s, newsCatalog) {
 function highlightDataPoints(text, baseKey) {
   const pattern = /(-?\d+[\d,]*\.?\d*\s*%|(?:SAR|USD|EUR|GBP)\s*[\d,.]+\s*(?:bn|mn|billion|million)?|\d+\.?\d*\s*(?:billion|million|mn|bn|bpd|pp|percentage points))/gi
   const parts = text.split(pattern)
-  return parts.map((part, i) => {
+  return parts.flatMap((part, i) => {
     if (i % 2 === 1) {
       return (
         <span
@@ -33,7 +47,7 @@ function highlightDataPoints(text, baseKey) {
         </span>
       )
     }
-    return part
+    return italicizeChartLabels(part, `${baseKey}-${i}`)
   })
 }
 
@@ -44,6 +58,10 @@ function bulletBody(trimmed) {
   if (trimmed.startsWith('•')) return trimmed.slice(1).trim()
   if (trimmed.startsWith('– ') || trimmed.startsWith('— ')) return trimmed.slice(2).trim()
   return null
+}
+
+function isContinuationLine(trimmed) {
+  return /^[,;:.)\]]/.test(trimmed)
 }
 
 function renderCompactList(items, newsCatalog, keyBase) {
@@ -125,16 +143,21 @@ function parseBlocks(text, variant = 'body', newsCatalog = []) {
 
   const flushList = () => {
     if (listBuf.length) {
+      const minIndent = Math.min(...listBuf.map((item) => item.indent))
+      const normalizedItems = listBuf.map((item) => ({
+        ...item,
+        depth: item.indent - minIndent >= 2 ? 1 : 0,
+      }))
       if (compact) {
         elements.push(
           <ul key={`ul-${elements.length}`} className="space-y-3 my-0 list-none pl-0">
-            {renderCompactList(listBuf, newsCatalog, `ul-${elements.length}`)}
+            {renderCompactList(normalizedItems, newsCatalog, `ul-${elements.length}`)}
           </ul>
         )
       } else {
         elements.push(
           <ul key={`ul-${elements.length}`} className="space-y-2 my-2">
-            {renderBodyList(listBuf, newsCatalog, `ul-${elements.length}`)}
+            {renderBodyList(normalizedItems, newsCatalog, `ul-${elements.length}`)}
           </ul>
         )
       }
@@ -145,7 +168,7 @@ function parseBlocks(text, variant = 'body', newsCatalog = []) {
   for (const line of lines) {
     const trimmed = line.trim()
     const indent = line.search(/\S/)
-    const depth = indent >= 2 ? 1 : 0
+    const normalizedIndent = indent < 0 ? 0 : indent
     const bullet = bulletBody(trimmed)
 
     if (trimmed.startsWith('### ')) {
@@ -154,9 +177,12 @@ function parseBlocks(text, variant = 'body', newsCatalog = []) {
     } else if (trimmed.startsWith('## ')) {
       flushList()
     } else if (bullet !== null && bullet !== '') {
-      listBuf.push({ text: bullet, depth })
+      listBuf.push({ text: bullet, indent: normalizedIndent })
     } else if (trimmed === '') {
       flushList()
+    } else if (listBuf.length > 0 && isContinuationLine(trimmed)) {
+      const last = listBuf[listBuf.length - 1]
+      last.text = `${last.text} ${trimmed}`.trim()
     } else {
       flushList()
       elements.push(

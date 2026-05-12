@@ -285,6 +285,13 @@ export default function InlineChartBlock({
   onFdiBenchmarkYearChange,
   exhibitLabel = null,
 }) {
+  const hasRenderablePoints = (seriesList) => (
+    Array.isArray(seriesList)
+    && seriesList.some(
+      (s) => Array.isArray(s?.points) && s.points.some((p) => p?.value != null)
+    )
+  )
+
   const isOilGdpSplit = String(kpiId) === '2-oil'
   const lookupId = isOilGdpSplit ? '2' : String(kpiId)
   const isFdiKpi = lookupId === '4'
@@ -300,16 +307,33 @@ export default function InlineChartBlock({
   const kpiResult = kpiDataCache.find(r => String(r.kpi_id) === lookupId)
   const defaults = KPI_CHART_DEFAULTS[String(kpiId)] || DEFAULT_CHART
   const hasDualFreq = !!(kpiResult?.series_annual?.length)
+  const hasQuarterlyPoints = hasRenderablePoints(kpiResult?.series)
+  const hasAnnualPoints = hasRenderablePoints(kpiResult?.series_annual)
 
   const [vizMode, setVizMode] = useState(defaults.vizMode)
-  const [freq, setFreq] = useState(hasDualFreq ? defaults.freq : 'Q')
+  const [freq, setFreq] = useState(() => {
+    if (!hasDualFreq) return 'Q'
+    if (defaults.freq === 'A' && hasAnnualPoints) return 'A'
+    if (defaults.freq === 'Q' && hasQuarterlyPoints) return 'Q'
+    if (hasQuarterlyPoints) return 'Q'
+    if (hasAnnualPoints) return 'A'
+    return defaults.freq
+  })
   const [copied, setCopied] = useState(false)
   const [cagrPopupOpen, setCagrPopupOpen] = useState(false)
   const [cagrResult, setCagrResult] = useState(null)
 
-  const activeSeries = (freq === 'A' && hasDualFreq)
-    ? kpiResult.series_annual
-    : kpiResult?.series
+  let activeSeries = (freq === 'A' && hasDualFreq)
+    ? (kpiResult?.series_annual || [])
+    : (kpiResult?.series || [])
+  if (!hasRenderablePoints(activeSeries) && hasDualFreq) {
+    const fallbackSeries = freq === 'A'
+      ? (kpiResult?.series || [])
+      : (kpiResult?.series_annual || [])
+    if (hasRenderablePoints(fallbackSeries)) {
+      activeSeries = fallbackSeries
+    }
+  }
 
   const isQuarterly = freq === 'Q' && kpiResult?.frequency === 'Q'
 
@@ -335,6 +359,20 @@ export default function InlineChartBlock({
     const name = isOilGdpSplit ? 'GDP - Real (Oil GDP)' : kpiResult.kpi_name
     return { seriesKeys: sk, rows: r, kpiName: name, unitLabel: unit }
   }, [kpiResult, activeSeries, isOilGdpSplit])
+
+  const displayUnitLabel = useMemo(() => {
+    if (!unitLabel) return ''
+    const trimmed = unitLabel.trim()
+    if (trimmed.startsWith('%')) {
+      if (isQuarterly && /\/\s*year/i.test(trimmed)) return trimmed.replace(/\/\s*year/i, '/ quarter')
+      if (!isQuarterly && /\/\s*quarter/i.test(trimmed)) return trimmed.replace(/\/\s*quarter/i, '/ year')
+    }
+    // When the unit is a bare scale word (e.g. "thousands" for population),
+    // the chart rescales to absolute and the axis shows M/B suffixes.
+    // Replace with "millions" so the label matches the displayed magnitude.
+    if (/^thousands?$/i.test(trimmed)) return 'millions'
+    return trimmed
+  }, [unitLabel, isQuarterly])
 
   const isPercentageUnit = unitLabel.trim().startsWith('%')
 
@@ -427,7 +465,14 @@ export default function InlineChartBlock({
     )
   }
 
-  if (!rows.length) return null
+  if (!rows.length) {
+    return (
+      <div className={`rounded-lg border border-amber-100 bg-amber-50/90 px-3 py-2 text-[11px] text-amber-900 ${compact ? '' : 'my-2'}`}>
+        <span className="font-medium">KPI {kpiId}</span>
+        {' — '}data was fetched, but no renderable points were available for the selected chart frequency.
+      </div>
+    )
+  }
 
   const chartHeight = compact ? 180 : 220
   const lay = kpiResult?.last_actual_year ?? new Date().getFullYear() - 1
@@ -487,8 +532,8 @@ export default function InlineChartBlock({
                 {kpiName}
               </p>
             </div>
-            {unitLabel && (
-              <p className="text-[10px] text-slate-400 leading-tight mt-0.5">{unitLabel}</p>
+            {displayUnitLabel && (
+              <p className="text-[10px] text-slate-400 leading-tight mt-0.5">{displayUnitLabel}</p>
             )}
           </div>
           <div className="flex items-center gap-1.5">
@@ -575,7 +620,7 @@ export default function InlineChartBlock({
           )}
           <ResponsiveContainer width="100%" height={chartHeight}>
             <ComposedChart key={`${activeVizMode}-${freq}`} data={chartRows}
-              margin={{ top: 5, right: hasOilOverlay ? 20 : 10, bottom: 0, left: 0 }}>
+              margin={{ top: activeVizMode === 'line' ? 18 : 5, right: hasOilOverlay ? 36 : 24, bottom: 0, left: 0 }}>
               {activeVizMode === 'line' && (
                 <defs>
                   {seriesKeys.map(sk => (
@@ -588,7 +633,7 @@ export default function InlineChartBlock({
               )}
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
               <XAxis dataKey="date" ticks={ticks} interval={0} height={24} axisLine={{ stroke: '#e2e8f0' }}
-                padding={{ left: 4, right: 4 }}
+                padding={{ left: 8, right: 8 }}
                 {...(cagrResult
                   ? { tick: <CagrXAxisTick axisFmt={axisFmt} cagrResult={cagrResult} /> }
                   : { tickFormatter: axisFmt, tick: { fontSize: 10, fill: '#94a3b8', fontFamily: 'inherit' } }
@@ -608,7 +653,7 @@ export default function InlineChartBlock({
                   <ReferenceArea y1={2} y2={999} yAxisId="left" fill="#fef2f2" fillOpacity={0.5} ifOverflow="hidden" />
                   <ReferenceArea y1={-999} y2={2} yAxisId="left" fill="#f0fdf4" fillOpacity={0.4} ifOverflow="hidden" />
                   <ReferenceLine y={2} yAxisId="left" stroke="#94a3b8" strokeDasharray="4 3"
-                    label={{ value: '2%', position: 'left', fontSize: 9, fill: '#64748b' }} />
+                    label={{ value: '2%', position: 'insideTopLeft', fontSize: 9, fill: '#64748b', fontFamily: 'inherit' }} />
                 </>
               )}
               {activeVizMode === 'bar'
@@ -617,7 +662,7 @@ export default function InlineChartBlock({
                       <Bar dataKey={fdiInwardKey} fill={seriesKeys.find(sk => sk.key === fdiInwardKey)?.color || SERIES_COLORS[0]} yAxisId="left" name={fdiInwardKey}
                         label={(props) => {
                           if (!keyPointIndices.has(props.index)) return null
-                          return <text x={props.x + props.width / 2} y={props.y - 4} textAnchor="middle" fontSize={8} fontWeight={600} fill="#334155">{formatAbbrevNumber(props.value)}</text>
+                          return <text x={props.x + props.width / 2} y={props.y + props.height / 2} textAnchor="middle" dominantBaseline="middle" fontSize={8} fontWeight={600} fill="#ffffff">{formatAbbrevNumber(props.value)}</text>
                         }} />
                       <Bar dataKey="__fdi_outward_neg__" fill={seriesKeys.find(sk => sk.key === fdiOutwardKey)?.color || SERIES_COLORS[1]} yAxisId="left" name={fdiOutwardKey} />
                       <Line type="linear" dataKey={NET_FDI_KEY} yAxisId="left" stroke={NET_FDI_COLOR}
@@ -627,7 +672,7 @@ export default function InlineChartBlock({
                       <Bar key={sk.key} dataKey={sk.key} fill={sk.color} stackId="a" yAxisId="left"
                         label={skIdx === 0 ? (props) => {
                           if (!keyPointIndices.has(props.index)) return null
-                          return <text x={props.x + props.width / 2} y={props.y - 4} textAnchor="middle" fontSize={8} fontWeight={600} fill="#334155">{formatAbbrevNumber(props.value)}</text>
+                          return <text x={props.x + props.width / 2} y={props.y + props.height / 2} textAnchor="middle" dominantBaseline="middle" fontSize={8} fontWeight={600} fill="#ffffff">{formatAbbrevNumber(props.value)}</text>
                         } : false} />
                     ))
                 )

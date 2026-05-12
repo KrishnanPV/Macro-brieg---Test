@@ -38,6 +38,8 @@ const useCountryBriefStore = create(
       kpiCatalog: [],
       /** User-selected KPI ids when mode is 'manual' */
       selectedKpiIds: [],
+      /** Analysis depth for backend pipeline */
+      generationMode: 'light',
 
       // --- Generation state ---
       generating: false,
@@ -75,6 +77,9 @@ const useCountryBriefStore = create(
       setStartYear: (y) => set({ startYear: y }),
       setEndYear: (y) => set({ endYear: y }),
       setFocus: (f) => set({ focus: f }),
+      setGenerationMode: (mode) => set({
+        generationMode: mode === 'deep' ? 'deep' : 'light',
+      }),
       setError: (e) => set({ error: e }),
       setFdiFlowMode: (mode) => set({
         fdiFlowMode: ['chart', 'inflow', 'outflow'].includes(mode) ? mode : 'chart',
@@ -140,7 +145,7 @@ const useCountryBriefStore = create(
       },
 
       storeTestReport: async () => {
-        const { selectedCountry, startYear, endYear, focus, blocks, kpiDataCache, fdiBenchmark, triageResults, newsArticles } = get()
+        const { selectedCountry, startYear, endYear, focus, generationMode, blocks, kpiDataCache, fdiBenchmark, triageResults, newsArticles } = get()
         try {
           const resp = await fetch('/api/country-brief/test-report/store', {
             method: 'POST',
@@ -150,6 +155,7 @@ const useCountryBriefStore = create(
               startYear,
               endYear,
               focus,
+              generationMode,
               blocks,
               kpiDataCache,
               fdiBenchmark,
@@ -180,6 +186,7 @@ const useCountryBriefStore = create(
             startYear: data.startYear,
             endYear: data.endYear,
             focus: data.focus || '',
+            generationMode: data.generationMode === 'deep' ? 'deep' : 'light',
             blocks: data.blocks,
             kpiDataCache: data.kpiDataCache || [],
             fdiBenchmark: data.fdiBenchmark || null,
@@ -208,6 +215,7 @@ const useCountryBriefStore = create(
         workspaceId: get().workspaceId,
         kpiSelectionMode: 'auto',
         selectedKpiIds: [],
+        generationMode: 'light',
       }),
 
       /**
@@ -239,6 +247,7 @@ const useCountryBriefStore = create(
             newsArticles: [],
             sidebarHistory: {},
             sidebarOpen: false,
+            generationMode: s.generationMode,
           }
         }
 
@@ -284,12 +293,13 @@ const useCountryBriefStore = create(
           streamingText: '',
           newsArticles: [],
           sidebarHistory: {},
+          generationMode: s.generationMode,
         }
       }),
 
       // --- Brief generation (streaming) ---
       generateBrief: async () => {
-        const { selectedCountry, startYear, endYear, focus, kpiSelectionMode, selectedKpiIds } = get()
+        const { selectedCountry, startYear, endYear, focus, generationMode, kpiSelectionMode, selectedKpiIds } = get()
         if (!selectedCountry) {
           set({ error: 'Select a country.' })
           return
@@ -311,7 +321,7 @@ const useCountryBriefStore = create(
           start_year: startYear,
           end_year: endYear,
           focus: focus || null,
-          deep_analysis: true,
+          deep_analysis: generationMode === 'deep',
         }
         if (kpiSelectionMode === 'manual') {
           payload.kpi_ids = selectedKpiIds
@@ -436,6 +446,7 @@ const useCountryBriefStore = create(
         startYear: state.startYear,
         endYear: state.endYear,
         focus: state.focus,
+        generationMode: state.generationMode,
         blocks: state.blocks,
         kpiDataCache: state.kpiDataCache,
         fdiBenchmark: state.fdiBenchmark,

@@ -67,25 +67,6 @@ class RefetchKpiRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Insights endpoints
-# ---------------------------------------------------------------------------
-
-class SingleKpiInsightRequest(BaseModel):
-    countries: list[str]
-    kpi_result: dict[str, Any]
-
-
-class SingleCountryKpiInsightRequest(BaseModel):
-    country: str
-    kpi_result: dict[str, Any]
-
-
-class CrossCountryInsightRequest(BaseModel):
-    countries: list[str]
-    kpi_result: dict[str, Any]
-
-
-# ---------------------------------------------------------------------------
 # Workspace endpoints
 # ---------------------------------------------------------------------------
 

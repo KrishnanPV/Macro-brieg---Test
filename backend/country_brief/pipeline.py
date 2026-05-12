@@ -1,35 +1,32 @@
-"""Country Brief pipeline orchestrator — wires the 3 agents together.
+"""Country Brief pipeline orchestrator backed by lab workflow stages.
 
 Flow:
-  1. Fetch KPI data from Oxford Economics           (deterministic)
-  2. Compute derived facts + triage + signals       (deterministic math)
-  3. Agent 1: interpret signals                     (1 GPT call)
-  4. Agent 2: research news — if deep_analysis      (0-1 Perplexity call)
-  5. Agent 3: stream the brief                      (1 GPT call, streamed)
-  6. Parse blocks + override metrics ribbon          (deterministic)
+  1. Fetch KPI data from Oxford Economics               (deterministic)
+  2. Compute derived facts + triage + signals           (deterministic math)
+  3. Aggregated insights composition via stage library  (aggregated)
+  4. News research — if deep_analysis                   (aggregated)
+  5. Stream the brief                                   (1 GPT call, streamed)
+  6. Parse blocks + override metrics ribbon             (deterministic)
 """
 from __future__ import annotations
 
 import json
 import logging
-import sys
+import re
 import uuid
 from datetime import datetime
 from typing import Any, Iterator
 
-from backend.config import OPENAI_MODEL
 from backend.models.kpi_registry import SPECS
 from backend.models.schemas import CountryBriefGenerateRequest
 from backend.services.derived_facts import compute_derived_facts
 from backend.services.knoema_client import fetch_kpi_data, fetch_oil_price_data
-from backend.services.kpi_triage import triage_kpis
-from backend.services.metrics_ribbon import compute_ribbon_metrics
-from backend.services.signals import extract_signals, rank_signals
+from backend.country_brief.kpi_triage import triage_kpis
+from backend.country_brief.metrics_ribbon import compute_ribbon_metrics
 
-from backend.country_brief.agents.signal_interpreter import interpret_signals
-from backend.country_brief.agents.news_researcher import research_signals
-from backend.country_brief.agents.benchmark_selector import select_benchmark_countries
-from backend.country_brief.agents.brief_writer import stream_brief, parse_brief_blocks
+from backend.country_brief.benchmark_selector import select_benchmark_countries
+from backend.country_brief.brief_writer import stream_brief, parse_brief_blocks
+from backend.country_brief.composition.aggregated_insights import run_for_country
 from backend.country_brief.fdi_benchmark import build_fdi_benchmark_payload
 from backend.country_brief.prompts import build_brief_prompt
 
@@ -136,6 +133,7 @@ def _ensure_chart_blocks(
 
 _KPI_SECTION_ORDER = {
     "3": 1, "2": 1, "11": 1, "1": 1,
+    "2-oil": 1,
     "4": 2, "8": 2,
     "7": 3,
     "5": 4, "6": 4,
@@ -143,12 +141,129 @@ _KPI_SECTION_ORDER = {
 }
 
 _KPI_DISPLAY_ORDER: dict[str, int] = {
-    "3": 0, "2": 1, "11": 2, "1": 3,
+    "3": 0, "2": 1, "2-oil": 2, "11": 3, "1": 4,
     "4": 0, "8": 1,
     "7": 0,
     "5": 0, "6": 1,
     "9": 0,
 }
+
+_SECTION_KPI_REQUIREMENTS: list[tuple[str, set[str]]] = [
+    ("Economic Performance & Growth", {"1", "2", "3", "11"}),
+    ("Investment & External Position", {"4", "8"}),
+    ("Inflation & Monetary Conditions", {"7"}),
+    ("Labour Market & Domestic Demand", {"5", "6"}),
+    ("Demographics & Structural Factors", {"9"}),
+]
+
+_SRC_CITATION_RE = re.compile(r"\[src:(\d+)\]", re.IGNORECASE)
+
+
+def _required_section_titles(ids_with_data: set[str]) -> list[str]:
+    required: list[str] = []
+    for title, kpis in _SECTION_KPI_REQUIREMENTS:
+        if not ids_with_data or any(k in ids_with_data for k in kpis):
+            required.append(title)
+    return required or [title for title, _ in _SECTION_KPI_REQUIREMENTS]
+
+
+def _has_tagged_section(raw_text: str, title: str) -> bool:
+    pattern = re.compile(rf"\[SECTION:\s*{re.escape(title)}\s*\]", re.IGNORECASE)
+    return bool(pattern.search(raw_text))
+
+
+def _inject_fallback_sources(raw_text: str, fallback_markers: list[str]) -> str:
+    if not fallback_markers:
+        return raw_text
+    source_line = f"\n\nSources: {' '.join(fallback_markers)}"
+    outlook_close = raw_text.find("[/OUTLOOK]")
+    if outlook_close >= 0:
+        return raw_text[:outlook_close] + source_line + "\n" + raw_text[outlook_close:]
+    return raw_text + source_line
+
+
+def _apply_brief_contract_guardrails(
+    raw_text: str,
+    *,
+    required_sections: list[str],
+    deep_analysis: bool,
+    articles_flat: list[dict[str, Any]],
+) -> tuple[str, list[str]]:
+    issues: list[str] = []
+    text = (raw_text or "").strip()
+
+    if not text:
+        text = (
+            "[EXEC_SUMMARY]\n"
+            "Macro conditions are mixed across the selected window; the section analysis below "
+            "summarizes key drivers, inflections, and outlook.\n"
+            "[/EXEC_SUMMARY]\n"
+        )
+        issues.append("empty_model_output")
+
+    if "[EXEC_SUMMARY]" not in text:
+        text = (
+            "[EXEC_SUMMARY]\n"
+            "The selected indicators show a meaningful macro shift; section analysis below "
+            "details transmission channels and implications.\n"
+            "[/EXEC_SUMMARY]\n\n"
+            f"{text}"
+        )
+        issues.append("missing_exec_summary")
+
+    if "[OUTLOOK]" not in text:
+        text += (
+            "\n\n[OUTLOOK]\n"
+            "**Tailwinds**\n"
+            "- Policy and demand resilience can support activity if momentum is sustained.\n\n"
+            "**Headwinds**\n"
+            "- External volatility and financing conditions remain downside risks.\n\n"
+            "**Net Assessment**\n"
+            "The near-term balance is mixed; persistence depends on policy execution and global conditions.\n"
+            "[/OUTLOOK]"
+        )
+        issues.append("missing_outlook")
+
+    missing_sections = [title for title in required_sections if not _has_tagged_section(text, title)]
+    if missing_sections:
+        section_stubs = [
+            (
+                f"[SECTION:{title}]\n"
+                "- Data is limited for this theme in the selected window; prioritize available trend "
+                "signals and chart evidence.\n"
+                "[/SECTION]"
+            )
+            for title in missing_sections
+        ]
+        insert_at = text.find("[OUTLOOK]")
+        if insert_at >= 0:
+            text = text[:insert_at].rstrip() + "\n\n" + "\n\n".join(section_stubs) + "\n\n" + text[insert_at:]
+        else:
+            text = text.rstrip() + "\n\n" + "\n\n".join(section_stubs)
+        issues.extend([f"missing_section:{title}" for title in missing_sections])
+
+    if deep_analysis and articles_flat:
+        existing_markers = set(_SRC_CITATION_RE.findall(text))
+        required_citations = min(2, len(articles_flat))
+        if len(existing_markers) < required_citations:
+            fallback_markers: list[str] = []
+            for article in articles_flat:
+                idx = article.get("index")
+                if idx is None:
+                    idx = article.get("n")
+                if idx is None:
+                    continue
+                marker = str(idx)
+                if marker in existing_markers or marker in fallback_markers:
+                    continue
+                fallback_markers.append(marker)
+                if len(existing_markers) + len(fallback_markers) >= required_citations:
+                    break
+            if fallback_markers:
+                text = _inject_fallback_sources(text, [f"[src:{n}]" for n in fallback_markers])
+                issues.append("citation_fallback_added")
+
+    return text, issues
 
 
 def _compute_exhibit_map(notable_kpi_ids: list[str]) -> dict[str, str]:
@@ -167,6 +282,14 @@ def _compute_exhibit_map(notable_kpi_ids: list[str]) -> dict[str, str]:
     return exhibit_map
 
 
+def _build_exhibit_kpi_ids(*, notable_kpi_ids: list[str], is_gcc: bool) -> list[str]:
+    """Build KPI IDs used for exhibit numbering, including GCC oil split when needed."""
+    ids = [str(k).strip() for k in notable_kpi_ids if str(k).strip()]
+    if is_gcc and "2" in ids and "2-oil" not in ids:
+        ids.append("2-oil")
+    return ids
+
+
 def _assign_exhibit_labels(blocks: list[dict[str, Any]], exhibit_map: dict[str, str]) -> None:
     """Attach exhibit_label to each chart_ref block in-place."""
     for block in blocks:
@@ -178,6 +301,27 @@ def _assign_exhibit_labels(blocks: list[dict[str, Any]], exhibit_map: dict[str, 
                 label = exhibit_map.get(kid)
                 if label:
                     child["exhibit_label"] = label
+
+
+def _check_exhibit_label_sequence(blocks: list[dict[str, Any]]) -> list[str]:
+    """Validate section exhibit labels are contiguous (A, B, C...) without gaps."""
+    issues: list[str] = []
+    for block in blocks:
+        if block.get("type") != "section":
+            continue
+        labels = [
+            str(child.get("exhibit_label", "")).strip()
+            for child in block.get("children") or []
+            if child.get("type") == "chart_ref"
+        ]
+        if not labels:
+            continue
+        expected_prefix = labels[0][:-1]
+        for idx, label in enumerate(labels):
+            expected_label = f"{expected_prefix}{chr(ord('A') + idx)}"
+            if label != expected_label:
+                issues.append(f"{block.get('title', 'section')}:{label}->{expected_label}")
+    return issues
 
 
 def _is_demographics_section_title(title: str) -> bool:
@@ -251,12 +395,8 @@ def _inject_oil_gdp_split(blocks: list[dict[str, Any]], is_gcc: bool, exhibit_ma
                 insert_after = i
                 break
         if insert_after is not None:
-            oil_label = None
-            if "2" in exhibit_map:
-                base_sec = exhibit_map["2"][0]
-                existing_in_sec = sum(1 for c in children if c.get("type") == "chart_ref")
-                oil_label = f"{base_sec}{chr(ord('A') + existing_in_sec)}"
             oil_chart = {"type": "chart_ref", "kpi_id": "2-oil"}
+            oil_label = exhibit_map.get("2-oil")
             if oil_label:
                 oil_chart["exhibit_label"] = oil_label
             children.insert(insert_after + 1, oil_chart)
@@ -268,11 +408,12 @@ def run_pipeline(
     *,
     deep_analysis: bool = False,
 ) -> Iterator[str]:
-    """Generate a country brief using the 3-agent pipeline.
+    """Generate a country brief using insights stage building blocks.
 
-    Agent 1: Math signals + 1 GPT interpretation call
-    Agent 2: 1 Perplexity news call (only if deep_analysis=True)
-    Agent 3: 1 GPT call to write the final brief
+    Analysis stages (aggregated over selected KPIs): signal extraction,
+    hypotheses, optional evidence research, and insight refinement from
+    `backend.insights_pipeline.stages`.
+    Final stage: stream country brief markdown and parse into frontend blocks.
     """
     all_oxford_ids = [s.id for s in SPECS if s.source == "oxford"]
     manual_selection = bool(req.kpi_ids)
@@ -280,8 +421,9 @@ def run_pipeline(
     available_ids = [kid for kid in available_ids if kid in {s.id for s in SPECS if s.source == "oxford"}]
     if not available_ids:
         available_ids = all_oxford_ids
+    is_gcc = req.country.upper() in _GCC_CODES
     # Automatic + GCC: always fetch oil/non-oil; other economies rely on triage-only selection.
-    if not manual_selection and req.country.upper() in _GCC_CODES:
+    if not manual_selection and is_gcc:
         if _OIL_NON_OIL_KPI not in available_ids:
             available_ids.append(_OIL_NON_OIL_KPI)
     timerange = f"{req.start_year}-{req.end_year}"
@@ -371,7 +513,7 @@ def run_pipeline(
                 fdi_benchmark_payload["max_year"] = max(all_years) if all_years else req.end_year
                 yield _ndjson({"type": "fdi_benchmark", "content": fdi_benchmark_payload})
 
-    # ── Phase 2: Agent 1 — Signal Detection + Interpretation ─────────────
+    # ── Phase 2: KPI triage + lab workflow analysis ──────────────────────
     yield _ndjson({"type": "status", "content": "Detecting signals..."})
 
     derived_facts = compute_derived_facts(valid_results)
@@ -400,77 +542,30 @@ def run_pipeline(
         ],
     })
 
-    all_signals = extract_signals(valid_results)
+    selected_kpi_ids = [kid for kid in notable_ids if kid in ids_with_data]
+    if not selected_kpi_ids:
+        selected_kpi_ids = [kid for kid in available_ids if kid in ids_with_data]
+    notable_ids = selected_kpi_ids
 
-    # Full KPI context for news breadth (before pre-filtering narrows KPI diversity)
-    all_kpi_signals: dict[str, list[str]] = {}
-    for s in all_signals:
-        all_kpi_signals.setdefault(s.kpi_name, []).append(s.description)
-
-    top_signals = rank_signals(all_signals, scores)
-    signals_data = [
-        {"signal_id": s.signal_id, "kpi_id": s.kpi_id, "kpi_name": s.kpi_name,
-         "country": s.country, "signal_type": s.signal_type,
-         "from_date": s.from_date, "to_date": s.to_date,
-         "from_value": s.from_value, "to_value": s.to_value,
-         "magnitude_pct": s.magnitude_pct, "description": s.description}
-        for s in top_signals
-    ]
-
-    yield _ndjson({"type": "status", "content": "Interpreting signals..."})
-    signal_interpretation = interpret_signals(
-        signals_data, req.country, req.start_year, req.end_year,
-        notable_kpi_ids=notable_ids,
-    )
-
-    # ── Phase 3: Agent 2 — News Correlation (deep search only) ───────────
-    articles_flat: list[dict[str, Any]] = []
-    prompt_bundle: dict[str, Any] | None = None
-
-    if deep_analysis and signals_data:
+    yield _ndjson({
+        "type": "status",
+        "content": (
+            f"Running {'deep' if deep_analysis else 'light'} insights workflow "
+            f"for {len(selected_kpi_ids)} selected KPIs..."
+        ),
+    })
+    if deep_analysis:
         yield _ndjson({"type": "status", "content": "Searching for correlated news..."})
-        try:
-            articles_flat, prompt_bundle = research_signals(
-                signals_data, req.country, req.start_year, req.end_year,
-                signal_interpretation=signal_interpretation,
-                all_kpi_signals=all_kpi_signals,
-            )
-            n = len(articles_flat)
-            # print + flush: visible in the uvicorn terminal (app loggers are easy to miss)
-            def _pplx_line(msg: str) -> None:
-                print(msg, file=sys.stderr, flush=True)
 
-            _pplx_line("========== Perplexity / news research ==========")
-            _pplx_line(f"Country {req.country} | articles in news_catalog: {n}")
-            preview_n = min(n, 12)
-            for i, a in enumerate(articles_flat[:preview_n], 1):
-                title = (a.get("title") or "")[:100]
-                dt = a.get("date") or ""
-                src = a.get("source") or ""
-                url = (a.get("url") or "")[:80]
-                snip = (a.get("snippet") or "")[:160].replace("\n", " ")
-                _pplx_line(f"  [{i}/{n}] {title} | date={dt} | source={src}")
-                _pplx_line(f"        url: {url}")
-                _pplx_line(f"        snippet: {snip}")
-            if n > preview_n:
-                _pplx_line(f"  ... {n - preview_n} more (omitted from terminal preview)")
-            _pplx_line("==================================================")
-            log.info("Perplexity news_catalog: %d articles", n)
-        except Exception as exc:
-            print(f"[Perplexity] ERROR: {exc}", file=sys.stderr, flush=True)
-            log.warning("News research failed: %s", exc)
-    elif not deep_analysis:
-        print(
-            "[Perplexity] Skipped: deep_analysis=False (enable deep analysis for news fetch)",
-            file=sys.stderr,
-            flush=True,
-        )
-    elif not signals_data:
-        print(
-            "[Perplexity] Skipped: no signals_data after ranking (nothing to match to news)",
-            file=sys.stderr,
-            flush=True,
-        )
+    kpi_results_by_id = {str(r.get("kpi_id", "")): r for r in valid_results}
+    signal_interpretation, articles_flat, prompt_bundle = run_for_country(
+        country=req.country,
+        start_year=req.start_year,
+        end_year=req.end_year,
+        selected_kpi_ids=selected_kpi_ids,
+        kpi_results=kpi_results_by_id,
+        deep_analysis=deep_analysis,
+    )
 
     yield _ndjson({
         "type": "news_catalog",
@@ -501,7 +596,7 @@ def run_pipeline(
         period_highlight = signal_interpretation.get("period_highlight", "")
 
     injection = (
-        "SIGNAL INTERPRETATION (from analysis agent):\n"
+        "SIGNAL INTERPRETATION (from aggregated insights workflow):\n"
         f"```json\n{interpretation_json}\n```\n\n"
     )
 
@@ -521,13 +616,13 @@ def run_pipeline(
 
     if deep_analysis and articles_flat:
         injection += (
-            "NEWS CONTEXT:\n"
-            "Use 2-3 news [src:N] citations across the ENTIRE brief where a named policy, "
-            "event, or decision validates a structural claim. Do not force citations into "
-            "every section.\n\n"
+            "DEEP-MODE CITATION POLICY:\n"
+            "Use 1-2 [src:N] citations where a named policy, event, or institutional decision "
+            "supports a structural claim. Keep citations sparse and evidence-linked.\n\n"
         )
 
-    exhibit_map = _compute_exhibit_map(notable_ids)
+    exhibit_kpi_ids = _build_exhibit_kpi_ids(notable_kpi_ids=notable_ids, is_gcc=is_gcc)
+    exhibit_map = _compute_exhibit_map(exhibit_kpi_ids)
     if exhibit_map:
         exhibit_lines = ", ".join(f"KPI {k} = ({v})" for k, v in sorted(exhibit_map.items()))
         injection += (
@@ -536,35 +631,6 @@ def run_pipeline(
             "When stating a number from a chart, append the exhibit label in parentheses: "
             "e.g. 'GDP grew 3.2% (1A)'. Do NOT write 'Exhibit' — just the code.\n\n"
         )
-
-    injection += (
-        "REMINDER — MANDATORY RULES:\n"
-        "1. Produce exactly these 5 sections: Economic Performance & Growth, "
-        "Investment & External Position, Inflation & Monetary Conditions, "
-        "Labour Market & Domestic Demand, Demographics & Structural Factors.\n"
-        "2. NEVER merge sections 3 and 4.\n"
-        "3. TOP-DOWN per section: Bullet 1 = GOVERNING INSIGHT — bold the ENTIRE "
-        "first sentence (structural takeaway), then un-bolded data with exhibit citations. "
-        "Bullet 2 = composition/drivers with sub-bullets (indented '  - '). "
-        "Bullet 3 = volatility ONLY if genuine reversal (skip if smooth). "
-        "Bullet 4 = forward projection.\n"
-        "4. Max 4-5 top-level bullets per section. Sub-bullets do not count.\n"
-        "5. Use annual time references. No quarterly notation.\n"
-        "6. Place each [CHART:kpi_id] only ONCE in the entire brief.\n"
-        "7. No fluff, no bridging filler, no restating previous bullets.\n"
-        "8. State start and end values. Do NOT narrate year-by-year. Only highlight an "
-        "intermediate year if there was a drastic reversal.\n"
-        "9. When aggregate GDP growth changes, state whether oil or non-oil GDP drove it. "
-        "For GCC, connect oil GDP to oil price movements. Note: GDP is real, oil prices "
-        "are nominal — flat oil GDP with rising prices reflects volume constraints.\n"
-        "10. Decompose net FDI changes: state whether driven by inflow growth, outflow "
-        "moderation, or both.\n"
-        "11. When external debt as % of GDP changes, decompose numerator vs denominator.\n"
-        "12. For Investment section: include one bullet benchmarking the country's FDI "
-        "against peers from FDI_BENCHMARK_CONTEXT, if available.\n"
-        "13. BOLDING: Bold ONLY the first sentence of each section's Bullet 1. Do NOT "
-        "bold numbers. Maximum 1-2 structural phrases bolded across remaining bullets."
-    )
 
     messages.append({"role": "user", "content": injection})
 
@@ -576,12 +642,26 @@ def run_pipeline(
             full_text = payload
 
     # ── Phase 5: Parse and finalize ──────────────────────────────────────
-    blocks = parse_brief_blocks(full_text)
+    required_sections = _required_section_titles(ids_with_data)
+    guarded_text, guardrail_issues = _apply_brief_contract_guardrails(
+        full_text,
+        required_sections=required_sections,
+        deep_analysis=deep_analysis,
+        articles_flat=articles_flat,
+    )
+    if guardrail_issues:
+        log.warning("Applied brief contract guardrails: %s", ", ".join(guardrail_issues))
+        yield _ndjson({"type": "status", "content": "Applying output contract guardrails..."})
+
+    blocks = parse_brief_blocks(guarded_text)
     blocks = _ensure_kpi9_demographics_chart(blocks, ids_with_data)
     fallback_chart_ids = [kid for kid in available_ids if kid in ids_with_data]
     blocks = _ensure_chart_blocks(blocks, preferred_chart_ids=fallback_chart_ids)
     _assign_exhibit_labels(blocks, exhibit_map)
-    _inject_oil_gdp_split(blocks, req.country.upper() in _GCC_CODES, exhibit_map)
+    _inject_oil_gdp_split(blocks, is_gcc, exhibit_map)
+    exhibit_issues = _check_exhibit_label_sequence(blocks)
+    if exhibit_issues:
+        log.warning("Non-sequential exhibit labels detected: %s", "; ".join(exhibit_issues))
     computed_metrics = compute_ribbon_metrics(derived_facts)
     if computed_metrics:
         blocks = [b for b in blocks if b.get("type") != "metrics_ribbon"]

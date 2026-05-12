@@ -153,22 +153,28 @@ INSIGHT_LENSES: dict[str, InsightLens] = {
             "Growth inflection points — sign changes or swings >2pp between periods.",
             "The period highlight signal identifies the single most significant movement — lead with it.",
             "Consecutive negative periods (recession) vs isolated dips.",
+            "Only call out volatility when swings are sustained or material to the growth narrative.",
         ],
         context_hooks=[
             "Fiscal stimulus or austerity programs, government spending plans, and budget announcements.",
             "Monetary policy stance (central bank rate decisions, currency pegs, liquidity management).",
             "OPEC+ production decisions affecting oil-GDP volume for producer economies.",
             "Global demand shocks, trade disruptions, or pandemic recovery trajectories.",
+            "When available, decompose growth using expenditure drivers (private consumption, fixed investment, exports, imports).",
         ],
         forbidden_claims=[
             "Do not describe quarter-on-quarter seasonally adjusted growth — data is year-on-year.",
             "Do not attribute growth to sectors unless sector data is in the payload.",
+            "Do not call a smooth trend 'volatile' without clear oscillation in the observed period.",
+            "Do not mix nominal price movements with real output decomposition; separate price context from real GDP volume movements.",
         ],
         units_note="Year-on-year %.",
         narrative_guidance=[
-            "Lead with the growth arc — start, peak/trough, end. Walk through the timeline.",
-            "For oil-dependent economies, distinguish oil-volume-driven growth from broad-based expansion.",
-            "Connect to KPI 2 and KPI 11 where both are in the payload for L2 depth.",
+            "Use a top-down arc: headline growth trend -> decomposition into main drivers -> implications for the macro trajectory.",
+            "Explicitly link growth to available drivers in the payload (KPI 2, KPI 11, and KPI 10 components when present).",
+            "For oil-dependent economies, distinguish oil-volume-driven growth from broad-based non-oil expansion.",
+            "Use supporting sub-points only when they directly substantiate a main growth claim.",
+            "Apply volatility language only when movement is materially uneven; if trend is smooth, emphasize persistence instead.",
         ],
     ),
     "4": InsightLens(
@@ -376,13 +382,17 @@ CURRENCY_NAMES: dict[str, str] = {
 }
 
 
-def resolve_unit_label(raw_unit: str, country_iso3: str = "") -> str:
+_STRIP_PRICE_QUALIFIER_KPIS = frozenset(("1",))
+
+
+def resolve_unit_label(raw_unit: str, country_iso3: str = "", *, kpi_id: str = "") -> str:
     """Turn Oxford's raw unit string into a concise, country-resolved label.
 
     Examples:
         'Riyal, Millions: 2023 prices' → 'SAR millions (2023 prices)'
+        'Riyal, Millions: 2023 prices' → 'SAR millions'  (kpi_id="1", qualifier stripped)
         'US$, Millions'                → 'USD millions'
-        '% year'                       → '% year'
+        '% year'                       → '% / year'
         'Person, Thousands'            → 'thousands'
     """
     if not raw_unit:
@@ -412,12 +422,14 @@ def resolve_unit_label(raw_unit: str, country_iso3: str = "") -> str:
 
     lower = text.lower()
 
+    strip_qual = kpi_id in _STRIP_PRICE_QUALIFIER_KPIS
+
     # US$ → USD directly
     if lower.startswith("us$"):
         rest = text[3:].strip().lstrip(",").strip()
         parts = rest.split(":")
         scale_part = parts[0].strip().lower() if parts else ""
-        qualifier = parts[1].strip() if len(parts) > 1 else ""
+        qualifier = parts[1].strip() if len(parts) > 1 and not strip_qual else ""
         label = f"USD {scale_part}" if scale_part else "USD"
         if qualifier:
             label += f" ({qualifier})"
@@ -429,14 +441,17 @@ def resolve_unit_label(raw_unit: str, country_iso3: str = "") -> str:
             rest = text.split(",", 1)[1].strip() if "," in text else ""
             parts = rest.split(":")
             scale_part = parts[0].strip().lower() if parts else ""
-            qualifier = parts[1].strip() if len(parts) > 1 else ""
+            qualifier = parts[1].strip() if len(parts) > 1 and not strip_qual else ""
             label = f"{code} {scale_part}" if scale_part else code
             if qualifier:
                 label += f" ({qualifier})"
             return label
 
-    # Percentages
+    # Percentages — normalise "% year" → "% / year", "% quarter" → "% / quarter"
     if lower.startswith("%"):
+        rest = text[1:].strip()
+        if rest and not rest.startswith("/"):
+            return f"% / {rest}"
         return text
 
     # Person / headcount

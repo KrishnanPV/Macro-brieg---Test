@@ -1,6 +1,20 @@
 import { AlertTriangle, FileText, Search, Zap } from 'lucide-react'
 import { interleaveSources } from '../../lib/interleaveSources.jsx'
 
+const CHART_LABEL_TOKEN_RE = /(\b\d+[A-Z]\b)/g
+const CHART_LABEL_ONLY_RE = /^\d+[A-Z]$/
+
+function italicizeChartLabels(text, keyPrefix = 'lbl') {
+  if (!text) return text
+  const parts = String(text).split(CHART_LABEL_TOKEN_RE)
+  if (parts.length === 1) return text
+  return parts.map((part, i) => (
+    CHART_LABEL_ONLY_RE.test(part)
+      ? <em key={`${keyPrefix}-${i}`} className="italic">{part}</em>
+      : part
+  ))
+}
+
 function inlineFmt(s, newsCatalog) {
   const parts = s.split(/(\*\*[^*]+\*\*)/g)
   return parts.map((p, i) => {
@@ -10,11 +24,11 @@ function inlineFmt(s, newsCatalog) {
     if (newsCatalog?.length) {
       return (
         <span key={i}>
-          {interleaveSources(p, newsCatalog, (seg) => seg)}
+          {interleaveSources(p, newsCatalog, (seg) => italicizeChartLabels(seg, `src-${i}`))}
         </span>
       )
     }
-    return p
+    return italicizeChartLabels(p, `txt-${i}`)
   })
 }
 

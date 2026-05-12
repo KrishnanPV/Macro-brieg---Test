@@ -67,6 +67,7 @@ def _fetch_indicator(
     tr: str,
     clip_start: pd.Timestamp,
     clip_end: pd.Timestamp,
+    kpi_id: str = "",
 ) -> tuple[IndicatorSeries | None, str]:
     """Fetch a single indicator series with metadata.
 
@@ -92,7 +93,7 @@ def _fetch_indicator(
             return None, f"{country}/{indicator}: no data returned."
 
         raw_unit, raw_scale = _extract_unit_scale(meta_df)
-        unit_label = resolve_unit_label(raw_unit, country)
+        unit_label = resolve_unit_label(raw_unit, country, kpi_id=kpi_id)
 
         points: list[SeriesPoint] = []
         for idx, row in df.iterrows():
@@ -125,6 +126,7 @@ def _fetch_all_indicators(
     tr: str,
     clip_start: pd.Timestamp,
     clip_end: pd.Timestamp,
+    kpi_id: str = "",
 ) -> tuple[list[IndicatorSeries], list[str]]:
     """Fetch all indicators for given countries at a single frequency."""
     all_series: list[IndicatorSeries] = []
@@ -132,7 +134,7 @@ def _fetch_all_indicators(
     for country in countries:
         for indicator in indicators:
             series, err = _fetch_indicator(
-                country, indicator, freq, tr, clip_start, clip_end,
+                country, indicator, freq, tr, clip_start, clip_end, kpi_id=kpi_id,
             )
             if series:
                 all_series.append(series)
@@ -184,13 +186,13 @@ def fetch_kpi_data(
             tr_q = timeranges["Q"]
             clip_q_start, clip_q_end = _parse_timerange(tr_q)
             q_series, q_errors = _fetch_all_indicators(
-                countries, spec.indicators, "Q", tr_q, clip_q_start, clip_q_end,
+                countries, spec.indicators, "Q", tr_q, clip_q_start, clip_q_end, kpi_id=kpi_id,
             )
             # Fetch annual
             tr_a = timeranges["A"]
             clip_a_start, clip_a_end = _parse_timerange(tr_a)
             a_series, a_errors = _fetch_all_indicators(
-                countries, spec.indicators, "A", tr_a, clip_a_start, clip_a_end,
+                countries, spec.indicators, "A", tr_a, clip_a_start, clip_a_end, kpi_id=kpi_id,
             )
             kpi_unit = q_series[0].unit if q_series else (a_series[0].unit if a_series else "")
             results.append(KpiResult(
@@ -204,7 +206,7 @@ def fetch_kpi_data(
             tr = timeranges.get(effective_freq, timeranges["A"])
             clip_start, clip_end = _parse_timerange(tr)
             all_series, errors = _fetch_all_indicators(
-                countries, spec.indicators, effective_freq, tr, clip_start, clip_end,
+                countries, spec.indicators, effective_freq, tr, clip_start, clip_end, kpi_id=kpi_id,
             )
             kpi_unit = all_series[0].unit if all_series else ""
             results.append(KpiResult(
@@ -245,7 +247,7 @@ def fetch_single_kpi(
     for country in countries:
         for indicator in spec.indicators:
             series, err = _fetch_indicator(
-                country, indicator, effective_freq, tr, clip_start, clip_end,
+                country, indicator, effective_freq, tr, clip_start, clip_end, kpi_id=kpi_id,
             )
             if series:
                 all_series.append(series)
