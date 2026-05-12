@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Sparkles, Loader2, RotateCcw, Target, Download, DatabaseBackup, Upload, FileText, ChevronDown } from 'lucide-react'
+import { ArrowLeft, Sparkles, Loader2, RotateCcw, Target, Download, DatabaseBackup, Upload, FileText, ChevronDown, X, Columns3, ScrollText, Menu, Maximize2, Minimize2, BarChart3, ChevronRight } from 'lucide-react'
 import useCountryBriefStore from '../../stores/countryBriefStore'
 import MetricsRibbon from './blocks/MetricsRibbon'
 import ExecSummaryBlock from './blocks/ExecSummaryBlock'
@@ -94,7 +94,9 @@ function collectInlineCssText() {
   return cssText
 }
 
-function BriefDocument({
+/* ───────────────────────────── Free-scroll (legacy) view ────────────────────────────── */
+
+function FreeScrollDocument({
   blocks,
   kpiDataCache,
   fdiBenchmark,
@@ -134,7 +136,6 @@ function BriefDocument({
             <div key={sIdx}>
               <SectionDivider title={section.title} />
               <div className="flex gap-0 mt-2 rounded-2xl border border-slate-200/80 bg-white shadow-sm overflow-hidden items-stretch">
-                {/* Left column — charts */}
                 <div className="min-w-0 flex-1 bg-slate-50/40 p-4 space-y-4 flex flex-col justify-center">
                   {charts.length > 0 ? charts.map((child, cIdx) => (
                     <InlineChartBlock
@@ -154,11 +155,7 @@ function BriefDocument({
                     </div>
                   )}
                 </div>
-
-                {/* Vertical divider */}
                 <div className="w-px bg-slate-200 shrink-0" />
-
-                {/* Right column — insights (fixed narrow width, top-aligned, scrollable) */}
                 <div className="min-w-0 shrink-0 w-[min(100%,19rem)] sm:w-[min(100%,20.5rem)] lg:w-[min(100%,22rem)] p-4 lg:p-5 space-y-2 flex flex-col justify-start overflow-y-auto">
                   {narratives.map((child, cIdx) => (
                     <NarrativeBlock
@@ -194,10 +191,327 @@ function BriefDocument({
   )
 }
 
+/* ────────────────────────────── Executive Summary Modal ─────────────────────────────── */
+
+function ExecSummaryModal({ execBlock, blockIndex, onDiscuss, newsCatalog, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-[2px]" onClick={onClose}>
+      <div
+        className="relative w-full max-w-2xl max-h-[80vh] mx-4 rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-y-auto animate-in fade-in zoom-in-95 duration-200"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          onClick={onClose}
+          className="absolute top-3 right-3 p-1.5 rounded-lg hover:bg-slate-100 transition text-slate-400 hover:text-slate-600 z-10"
+        >
+          <X className="w-4 h-4" />
+        </button>
+        <div className="p-6">
+          <ExecSummaryBlock
+            content={execBlock.content}
+            blockIndex={blockIndex}
+            onDiscuss={onDiscuss}
+            newsCatalog={newsCatalog}
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ────────────────────────────── Section navigation sidebar ──────────────────────────── */
+
+function SectionNav({ navItems, activeKey, onSelect, collapsed, onToggle, triageResults = [] }) {
+  const [triageOpen, setTriageOpen] = useState(false)
+  const notable = triageResults.filter(t => t.notable)
+  const skipped = triageResults.filter(t => !t.notable)
+
+  return (
+    <>
+      {/* Collapsed toggle for small screens */}
+      <button
+        type="button"
+        onClick={onToggle}
+        className="lg:hidden fixed top-20 left-2 z-30 p-2 rounded-lg bg-slate-100 border border-slate-200 shadow-sm text-slate-500 hover:text-slate-700 hover:bg-slate-200 transition"
+      >
+        <Menu className="w-4 h-4" />
+      </button>
+
+      {/* Overlay backdrop on small screens when open */}
+      {!collapsed && (
+        <div className="lg:hidden fixed inset-0 z-20 bg-black/20" onClick={onToggle} />
+      )}
+
+      <nav
+        className={`
+          shrink-0 flex flex-col h-full bg-slate-50 border-r border-slate-200/80 overflow-y-auto
+          transition-all duration-200 ease-in-out
+          ${collapsed
+            ? 'w-0 min-w-0 opacity-0 pointer-events-none lg:w-[17%] lg:min-w-[170px] lg:max-w-[220px] lg:opacity-100 lg:pointer-events-auto'
+            : 'fixed inset-y-0 left-0 z-20 w-64 lg:relative lg:w-[17%] lg:min-w-[170px] lg:max-w-[220px]'
+          }
+        `}
+      >
+        <div className="flex items-center justify-between px-4 pt-5 pb-3 lg:hidden">
+          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Sections</span>
+          <button onClick={onToggle} className="p-1 rounded hover:bg-slate-200 text-slate-400">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+        <div className="hidden lg:block px-4 pt-5 pb-3">
+          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Sections</span>
+        </div>
+        <ul className="flex-1 px-2 pb-2 space-y-0.5">
+          {navItems.map((item) => {
+            const isActive = item.key === activeKey
+            return (
+              <li key={item.key}>
+                <button
+                  type="button"
+                  onClick={() => { onSelect(item.key); if (!collapsed) onToggle?.() }}
+                  className={`
+                    w-full text-left px-3 py-2.5 rounded-lg text-[12.5px] leading-snug transition-all duration-150
+                    ${isActive
+                      ? 'bg-slate-200/70 text-slate-800 font-semibold border-l-2 border-slate-600'
+                      : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700 border-l-2 border-transparent'
+                    }
+                  `}
+                >
+                  {item.label}
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+
+        {/* Triage summary */}
+        {triageResults.length > 0 && (
+          <div className="shrink-0 border-t border-slate-200/80 px-3 py-2">
+            <button
+              type="button"
+              onClick={() => setTriageOpen(v => !v)}
+              className="inline-flex items-center gap-1.5 text-[10px] font-medium text-slate-400 hover:text-slate-600 transition w-full"
+            >
+              {triageOpen ? <ChevronDown className="w-2.5 h-2.5" /> : <ChevronRight className="w-2.5 h-2.5" />}
+              <BarChart3 className="w-2.5 h-2.5" />
+              <span>{notable.length} KPIs · {skipped.length} filtered</span>
+            </button>
+            {triageOpen && (
+              <div className="mt-1.5 space-y-0.5">
+                {triageResults.map((t) => (
+                  <div key={t.kpi_id} className="flex items-start gap-1.5 py-1">
+                    <span className={`text-[9px] mt-0.5 ${t.notable ? 'text-emerald-500' : 'text-slate-300'}`}>
+                      {t.notable ? '●' : '○'}
+                    </span>
+                    <span className={`text-[10px] leading-tight ${t.notable ? 'text-slate-600' : 'text-slate-400'}`}>
+                      {t.kpi_name}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </nav>
+    </>
+  )
+}
+
+/* ───────────────────────────── Three-column brief view ──────────────────────────────── */
+
+function ColumnBriefView({
+  blocks,
+  kpiDataCache,
+  fdiBenchmark,
+  fdiFlowMode,
+  onFdiFlowModeChange,
+  onFdiBenchmarkYearChange,
+  onDiscuss,
+  newsCatalog = [],
+  triageResults,
+}) {
+  const metricsBlock = blocks.find(b => b.type === 'metrics_ribbon')
+  const execBlock = blocks.find(b => b.type === 'executive_summary')
+  const sectionBlocks = blocks.filter(b => b.type === 'section')
+  const outlookBlock = blocks.find(b => b.type === 'outlook')
+
+  const getBlockIndex = (block) => blocks.indexOf(block)
+
+  const navItems = useMemo(() => {
+    const items = []
+    if (execBlock) items.push({ key: 'exec', label: 'Executive Summary' })
+    sectionBlocks.forEach((s) => {
+      items.push({ key: `section-${getBlockIndex(s)}`, label: s.title, block: s })
+    })
+    if (outlookBlock) items.push({ key: 'outlook', label: 'Forward Outlook' })
+    return items
+  }, [blocks])
+
+  const [activeKey, setActiveKey] = useState(() => {
+    const firstSection = navItems.find(n => n.key !== 'exec')
+    return firstSection?.key ?? navItems[0]?.key ?? 'exec'
+  })
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
+  const [execModalOpen, setExecModalOpen] = useState(false)
+  const prevKeyRef = useRef(activeKey)
+
+  useEffect(() => {
+    if (navItems.length && !navItems.find(n => n.key === activeKey)) {
+      setActiveKey(navItems[0]?.key ?? 'exec')
+    }
+  }, [navItems, activeKey])
+
+  const handleNavSelect = useCallback((key) => {
+    if (key === 'exec') {
+      setExecModalOpen(true)
+      return
+    }
+    prevKeyRef.current = activeKey
+    setActiveKey(key)
+  }, [activeKey])
+
+  const activeItem = navItems.find(n => n.key === activeKey)
+  const activeSection = activeItem?.block ?? null
+  const isOutlook = activeKey === 'outlook'
+  const isExec = activeKey === 'exec'
+
+  const charts = activeSection?.children?.filter(c => c.type === 'chart_ref') || []
+  const narratives = activeSection?.children?.filter(c => c.type === 'narrative') || []
+  const activeSectionIdx = activeSection ? getBlockIndex(activeSection) : null
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Sticky metrics ribbon */}
+      {metricsBlock && (
+        <div className="shrink-0 sticky top-0 z-10">
+          <MetricsRibbon metrics={metricsBlock.metrics} kpiDataCache={kpiDataCache} />
+        </div>
+      )}
+
+      {/* Three-column body */}
+      <div className="flex flex-1 min-h-0 max-w-[1600px] w-full mx-auto">
+        {/* LEFT — section nav */}
+        <SectionNav
+          navItems={navItems}
+          activeKey={activeKey}
+          onSelect={handleNavSelect}
+          collapsed={sidebarCollapsed}
+          onToggle={() => setSidebarCollapsed(v => !v)}
+          triageResults={triageResults}
+        />
+
+        {/* CENTER — charts */}
+        <div className="flex-1 min-w-0 max-w-[900px] overflow-y-auto bg-slate-50/30">
+          <div className="p-5 space-y-5" key={activeKey}>
+            {activeSection && (
+              <div className="opacity-0 animate-[fadeIn_200ms_ease-out_forwards]">
+                {charts.length > 0 ? charts.map((child, cIdx) => (
+                  <div key={cIdx} className="mb-5">
+                    <InlineChartBlock
+                      kpiId={child.kpi_id}
+                      kpiDataCache={kpiDataCache}
+                      fdiBenchmark={fdiBenchmark}
+                      fdiFlowMode={fdiFlowMode}
+                      onFdiFlowModeChange={onFdiFlowModeChange}
+                      onFdiBenchmarkYearChange={onFdiBenchmarkYearChange}
+                      exhibitLabel={child.exhibit_label || null}
+                      compact
+                    />
+                  </div>
+                )) : (
+                  <div className="flex items-center justify-center h-48 text-xs text-slate-300">
+                    No chart data for this section
+                  </div>
+                )}
+              </div>
+            )}
+
+            {isOutlook && (
+              <div className="opacity-0 animate-[fadeIn_200ms_ease-out_forwards]">
+                <div className="flex items-center justify-center h-48 text-xs text-slate-300">
+                  See outlook insights in the right panel
+                </div>
+              </div>
+            )}
+
+            {isExec && !activeSection && !isOutlook && (
+              <div className="flex items-center justify-center h-48 text-xs text-slate-300">
+                Select a section from the sidebar
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* RIGHT — insights + docked refine chat */}
+        <div className="flex-[0_0_35%] min-w-[280px] max-w-[480px] flex flex-col h-full border-l border-slate-200 bg-white">
+          {/* Insights scroll area */}
+          <div className="flex-1 overflow-y-auto p-4 lg:p-5 space-y-2" key={`insights-${activeKey}`}>
+            {activeSection && narratives.length > 0 && (
+              <div className="opacity-0 animate-[fadeIn_200ms_ease-out_forwards]">
+                {narratives.map((child, cIdx) => (
+                  <NarrativeBlock
+                    key={cIdx}
+                    variant="insights"
+                    content={child.content}
+                    blockIndex={cIdx}
+                    sectionIndex={activeSectionIdx}
+                    sectionTitle={activeSection.title}
+                    onDiscuss={onDiscuss}
+                    newsCatalog={newsCatalog}
+                  />
+                ))}
+              </div>
+            )}
+
+            {isOutlook && outlookBlock && (
+              <div className="opacity-0 animate-[fadeIn_200ms_ease-out_forwards]">
+                <OutlookBlock
+                  content={outlookBlock.content}
+                  blockIndex={getBlockIndex(outlookBlock)}
+                  onDiscuss={onDiscuss}
+                  newsCatalog={newsCatalog}
+                />
+              </div>
+            )}
+
+            {!activeSection && !isOutlook && (
+              <div className="flex items-center justify-center h-32 text-xs text-slate-300">
+                Select a section to view insights
+              </div>
+            )}
+          </div>
+
+          {/* Docked refine chat */}
+          <BriefSidebar docked />
+        </div>
+      </div>
+
+      {/* Exec summary modal */}
+      {execModalOpen && execBlock && (
+        <ExecSummaryModal
+          execBlock={execBlock}
+          blockIndex={getBlockIndex(execBlock)}
+          onDiscuss={onDiscuss}
+          newsCatalog={newsCatalog}
+          onClose={() => setExecModalOpen(false)}
+        />
+      )}
+    </div>
+  )
+}
+
 export default function CountryBrief() {
   const navigate = useNavigate()
   const downloadMenuRef = useRef(null)
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false)
+  const [viewMode, setViewMode] = useState('columns') // 'columns' | 'scroll'
+  const [focusMode, setFocusMode] = useState(false)
   const {
     countryOptions, countryNames, selectedCountry,
     startYear, endYear, focus, generating, statusMessage, streamingText,
@@ -541,23 +855,25 @@ export default function CountryBrief() {
   }
 
   // --- Brief view ---
+  const isColumnView = viewMode === 'columns'
+
   return (
-    <div className="flex h-full">
-      <div className="flex-1 overflow-y-auto">
-        {/* Brief header */}
-        <div className="max-w-4xl mx-auto px-6 pt-6 pb-2">
-          <div className="flex items-center justify-between mb-4">
+    <div className="flex flex-col h-full">
+      {/* Brief header — hidden in focus mode */}
+      {!focusMode && (
+        <div className="shrink-0 px-6 py-2 border-b border-slate-100 bg-white">
+          <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <button
                 type="button"
                 title="Home"
                 onClick={() => navigate('/')}
-                className="p-2 rounded-lg hover:bg-slate-100 transition text-slate-500 hover:text-slate-700"
+                className="p-1.5 rounded-lg hover:bg-slate-100 transition text-slate-500 hover:text-slate-700"
               >
                 <ArrowLeft className="w-4 h-4" />
               </button>
               <div>
-                <h1 className="text-xl font-bold text-slate-800">
+                <h1 className="text-base font-bold text-slate-800">
                   {countryNames[selectedCountry] || selectedCountry}
                 </h1>
                 <p className="text-xs text-slate-400">
@@ -569,11 +885,41 @@ export default function CountryBrief() {
             </div>
 
             <div className="flex items-center gap-2 flex-wrap justify-end">
+              {/* View mode toggle */}
+              <div className="inline-flex rounded-lg overflow-hidden border border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('columns')}
+                  title="Column view"
+                  className={`p-2 transition-all ${isColumnView ? 'bg-slate-800 text-white' : 'bg-white text-slate-400 hover:bg-slate-50 hover:text-slate-600'}`}
+                >
+                  <Columns3 className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('scroll')}
+                  title="Free-scroll view"
+                  className={`p-2 transition-all ${!isColumnView ? 'bg-slate-800 text-white' : 'bg-white text-slate-400 hover:bg-slate-50 hover:text-slate-600'}`}
+                >
+                  <ScrollText className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {/* Focus mode toggle */}
+              <button
+                type="button"
+                onClick={() => setFocusMode(true)}
+                title="Focus mode"
+                className="p-2 rounded-lg border border-slate-200 bg-white text-slate-400 hover:bg-slate-50 hover:text-slate-600 transition"
+              >
+                <Maximize2 className="w-3.5 h-3.5" />
+              </button>
+
               {debugMode && (
                 <button
                   type="button"
                   onClick={storeTestReport}
-                  className="inline-flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-xl hover:bg-amber-100 transition"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-xl hover:bg-amber-100 transition"
                 >
                   <DatabaseBackup className="w-3.5 h-3.5" />Store test report
                 </button>
@@ -581,7 +927,7 @@ export default function CountryBrief() {
               <button
                 type="button"
                 onClick={resetBrief}
-                className="inline-flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium text-slate-500 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 hover:text-slate-700 transition"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-500 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 hover:text-slate-700 transition"
               >
                 Start over
               </button>
@@ -590,7 +936,7 @@ export default function CountryBrief() {
                   type="button"
                   onClick={() => setDownloadMenuOpen(v => !v)}
                   disabled={!blocks.length}
-                  className="inline-flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition disabled:opacity-40"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition disabled:opacity-40"
                 >
                   <Download className="w-3.5 h-3.5" />Download
                   <ChevronDown className={`w-3.5 h-3.5 transition-transform ${downloadMenuOpen ? 'rotate-180' : ''}`} />
@@ -616,13 +962,13 @@ export default function CountryBrief() {
               </div>
               <button onClick={handleExportMarkdown}
                 disabled={!blocks.length}
-                className="inline-flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition disabled:opacity-40"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition disabled:opacity-40"
               >
                 <FileText className="w-3.5 h-3.5" />Markdown
               </button>
               <button onClick={generateBrief}
                 disabled={generating}
-                className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold text-white rounded-xl transition-all
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white rounded-xl transition-all
                   bg-gradient-to-r from-indigo-600 to-purple-600
                   hover:from-indigo-700 hover:to-purple-700
                   shadow-sm disabled:opacity-50 active:scale-[0.98]"
@@ -631,33 +977,76 @@ export default function CountryBrief() {
               </button>
             </div>
           </div>
-        </div>
 
-        {error && (
-          <div className="max-w-4xl mx-auto px-6 mb-4">
-            <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-xs">{error}</div>
+          {error && (
+            <div className="mt-2 rounded-lg bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-xs">{error}</div>
+          )}
+        </div>
+      )}
+
+      {/* Floating exit-focus button */}
+      {focusMode && (
+        <button
+          type="button"
+          onClick={() => setFocusMode(false)}
+          title="Exit focus mode"
+          className="fixed top-14 right-4 z-50 p-2 rounded-lg bg-white/80 border border-slate-200 text-slate-400 hover:bg-white hover:text-slate-600 shadow-sm backdrop-blur-sm transition"
+        >
+          <Minimize2 className="w-3.5 h-3.5" />
+        </button>
+      )}
+
+      {/* View body */}
+      {isColumnView ? (
+        <>
+          <div className="flex-1 min-h-0">
+            <ColumnBriefView
+              blocks={blocks}
+              kpiDataCache={kpiDataCache}
+              fdiBenchmark={fdiBenchmark}
+              fdiFlowMode={fdiFlowMode}
+              onFdiFlowModeChange={setFdiFlowMode}
+              onFdiBenchmarkYearChange={refreshFdiBenchmark}
+              onDiscuss={handleDiscuss}
+              newsCatalog={newsArticles}
+              triageResults={triageResults}
+            />
           </div>
-        )}
-
-        <div data-country-brief-report>
-          <TriagePanel triageResults={triageResults} />
-
-          <BriefDocument
-            blocks={blocks}
-            kpiDataCache={kpiDataCache}
-            fdiBenchmark={fdiBenchmark}
-            fdiFlowMode={fdiFlowMode}
-            onFdiFlowModeChange={setFdiFlowMode}
-            onFdiBenchmarkYearChange={refreshFdiBenchmark}
-            onDiscuss={handleDiscuss}
-            newsCatalog={newsArticles}
-          />
+          {/* Hidden full document for HTML/PDF export */}
+          <div className="absolute -left-[9999px] w-[1280px]" aria-hidden="true" data-country-brief-report>
+            <FreeScrollDocument
+              blocks={blocks}
+              kpiDataCache={kpiDataCache}
+              fdiBenchmark={fdiBenchmark}
+              fdiFlowMode={fdiFlowMode}
+              onFdiFlowModeChange={setFdiFlowMode}
+              onFdiBenchmarkYearChange={refreshFdiBenchmark}
+              onDiscuss={handleDiscuss}
+              newsCatalog={newsArticles}
+            />
+          </div>
+        </>
+      ) : (
+        <div className="flex flex-1 min-h-0">
+          <div className="flex-1 overflow-y-auto">
+            <div data-country-brief-report>
+              <TriagePanel triageResults={triageResults} />
+              <FreeScrollDocument
+                blocks={blocks}
+                kpiDataCache={kpiDataCache}
+                fdiBenchmark={fdiBenchmark}
+                fdiFlowMode={fdiFlowMode}
+                onFdiFlowModeChange={setFdiFlowMode}
+                onFdiBenchmarkYearChange={refreshFdiBenchmark}
+                onDiscuss={handleDiscuss}
+                newsCatalog={newsArticles}
+              />
+            </div>
+            <div className="h-16" />
+          </div>
+          <BriefSidebar />
         </div>
-
-        <div className="h-16" />
-      </div>
-
-      <BriefSidebar />
+      )}
     </div>
   )
 }
