@@ -7,7 +7,7 @@ Append-only log for lab prompt updates. Do not edit past entries; add a new entr
 - Added baseline system, style, KPI context, reasoning, and causal language prompt files.
 - Set model profile metadata in `manifest.yaml` for reproducible prompt+model snapshots.
 
-## [SB-001] 2026-05-04 - system_base.md (0.1.1)
+## [001] 2026-05-04 - system_base.md (0.1.1)
 
 **Change**
 - First system prompt developed from scratch
@@ -23,7 +23,7 @@ Append-only log for lab prompt updates. Do not edit past entries; add a new entr
 **Impact**
 - Improves analytical depth and consistency across long time horizons.
 
-## [SG-001] 2026-05-04 - style_guide.md (0.1.1)
+## [002] 2026-05-04 - style_guide.md (0.1.1)
 
 **Change**
 - Created initial style guide for macroeconomic briefs
@@ -44,7 +44,7 @@ Append-only log for lab prompt updates. Do not edit past entries; add a new entr
 - Increases consistency in insight structure across the pipeline
 - Reduces verbosity and redundancy
 
-## [RP-001] 2026-05-04 - reasoning_playbook.md (0.1.1)
+## [003] 2026-05-04 - reasoning_playbook.md (0.1.1)
 
 **Change**
 - First test of reasoning_distillation workflow
@@ -66,7 +66,7 @@ Append-only log for lab prompt updates. Do not edit past entries; add a new entr
 - Standardizes reasoning across pipeline steps
 - Improves causal clarity, consistency, and robustness of insights
 
-## [GDP-L2-001] 2026-05-05 - per_kpi_context.md (0.1.1), reasoning_playbook.md (0.1.2), style_guide.md (0.1.2)
+## [004] 2026-05-05 - per_kpi_context.md (0.1.1), reasoning_playbook.md (0.1.2), style_guide.md (0.1.2)
 
 **Change**
 - Updated `per_kpi_context.md` to add top-down storyline guidance and KPI-3-specific decomposition instructions.
@@ -85,7 +85,7 @@ Append-only log for lab prompt updates. Do not edit past entries; add a new entr
 - Better alignment between hypothesis generation and final brief writing style.
 - Clearer bullet hierarchy with stronger claim-first structure.
 
-## [EXEC-SUM-001] 2026-05-05 - system_base.md (0.1.2), style_guide.md (0.1.3)
+## [005] 2026-05-05 - system_base.md (0.1.2), style_guide.md (0.1.3)
 
 **Change**
 - Updated `style_guide.md` with explicit Executive Summary requirements:
@@ -102,7 +102,7 @@ Append-only log for lab prompt updates. Do not edit past entries; add a new entr
 - Executive summaries should be more comprehensive and better balanced across KPIs.
 - Stronger, more consistent formatting with bold lead-in on every line.
 
-## [SUB-BULLET-001] 2026-05-05 - style_guide.md (0.1.4)
+## [006] 2026-05-05 - style_guide.md (0.1.4)
 
 **Change**
 - Strengthened section-body guidance so non-executive sections default to parent bullet + 1-2 indented sub-bullets when supporting evidence exists.
@@ -117,7 +117,7 @@ Append-only log for lab prompt updates. Do not edit past entries; add a new entr
 - More consistent nested bullet structure in body sections.
 - Better separation of headline insight vs supporting proof/mechanism.
 
-## [RP-002] 2026-05-06 - reasoning_playbook.md (0.1.3)
+## [007] 2026-05-06 - reasoning_playbook.md (0.1.3)
 
 **Change**
 - Failure modes to avoid additions:
