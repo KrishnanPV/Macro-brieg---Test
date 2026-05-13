@@ -132,3 +132,17 @@ Append-only log for lab prompt updates. Do not edit past entries; add a new entr
 - Examples seem to have been understood better.
 - Need to consider if the point on forecasts is actually being reflected since perplexity search may pull 2026 data even when Oxford Economics tags the data as forecasted.
 - Can reword 3rd failure mode to start with a title
+
+## [008] 2026-05-13 - causal_language_rules.md (0.1.1)
+
+**Change**
+- Prevent unsubstantiated strong judgements/conclusions
+- Ensure evidence follows any claims made
+- Prevent aggressive wording event when the statement is objectively accurate
+
+**Reason**
+- Comments from the team on specific wording
+- Claims can come off as too strong when other potential underlying causes are not discussed. Thus it is better to use more diplomatic language
+
+**Impact**
+- Language is a lot softer, using words that suggest rather than declare

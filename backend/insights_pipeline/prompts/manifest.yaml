@@ -48,7 +48,7 @@
     {
       "id": "causal_language_rules",
       "file": "causal_language_rules.md",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "used_by": ["insights_generator", "evaluator"]
     }
   ]
