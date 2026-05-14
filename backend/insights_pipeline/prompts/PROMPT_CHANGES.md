@@ -146,3 +146,14 @@ Append-only log for lab prompt updates. Do not edit past entries; add a new entr
 
 **Impact**
 - Language is a lot softer, using words that suggest rather than declare
+
+## [009] 2026-05-14 - manifest.yaml
+
+**Change**
+- Added `brief_writer` to `causal_language_rules` `used_by` in `manifest.yaml`.
+
+**Reason**
+- Ensure the softer, evidence-linked language constraints from [008] also apply when generating the Country Brief executive summary.
+
+**Impact**
+- Country Brief executive summaries now inherit the same causal-language discipline used in the insights generation/evaluation stages.
