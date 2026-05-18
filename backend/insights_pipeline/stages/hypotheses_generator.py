@@ -19,6 +19,7 @@ def run_step(
     kpi_context_override: str | None = None,
 ) -> dict[str, Any]:
     """Generate broad causal hypotheses for the selected KPI signals."""
+    system_base = load_prompt("system_base.md")
     per_kpi_prompt = load_prompt("per_kpi_context.md")
     kpi_context = kpi_context_override if kpi_context_override is not None else get_kpi_context(kpi_id)
     system_prompt = (
@@ -27,6 +28,8 @@ def run_step(
         "Return JSON with key `hypotheses` where each item has: "
         "`id`, `title`, `causal_story`, `potential_effects`, `confidence`."
     )
+    if system_base:
+        system_prompt = f"{system_prompt}\n\n{system_base}"
     if per_kpi_prompt:
         system_prompt = f"{system_prompt}\n\n{per_kpi_prompt}"
 

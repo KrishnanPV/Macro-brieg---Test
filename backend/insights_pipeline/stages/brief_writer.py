@@ -22,6 +22,7 @@ def run_step(
     """Generate final markdown brief text from finalized insights."""
     system_base = load_prompt("system_base.md")
     style_guide = load_prompt("style_guide.md")
+    causal_rules = load_prompt("causal_language_rules.md")
     if generation_mode == "light":
         system_prompt = (
             "You are a macro brief writer. Write a tightly scoped markdown output for one KPI.\n"
@@ -38,6 +39,8 @@ def run_step(
         system_prompt = f"{system_prompt}\n\n{system_base}"
     if style_guide:
         system_prompt = f"{system_prompt}\n\n{style_guide}"
+    if causal_rules:
+        system_prompt = f"{system_prompt}\n\n{causal_rules}"
 
     if generation_mode == "light":
         user_prompt = (

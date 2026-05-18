@@ -19,6 +19,7 @@ def run_step(
     reasoning_model: str = REASONING_MODEL,
 ) -> dict[str, Any]:
     """Generate current and forward-looking KPI insights."""
+    system_base = load_prompt("system_base.md")
     playbook = load_prompt("reasoning_playbook.md")
     causal_rules = load_prompt("causal_language_rules.md")
     if generation_mode == "light":
@@ -36,6 +37,8 @@ def run_step(
             "Return JSON with keys `insights` and `predictions`.\n"
             "Each insight must include `id`, `headline`, `analysis`, `evidence_refs`, `confidence`."
         )
+    if system_base:
+        system_prompt = f"{system_prompt}\n\n{system_base}"
     if playbook:
         system_prompt = f"{system_prompt}\n\n{playbook}"
     if causal_rules:
