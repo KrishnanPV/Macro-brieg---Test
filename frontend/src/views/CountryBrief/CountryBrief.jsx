@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Sparkles, Loader2, RotateCcw, Target, Download, DatabaseBackup, Upload, FileText, ChevronDown, X, Columns3, ScrollText, Menu, Maximize2, Minimize2, BarChart3, ChevronRight } from 'lucide-react'
+import { ArrowLeft, Sparkles, Loader2, RotateCcw, Target, Download, DatabaseBackup, Upload, FileText, ChevronDown, X, Columns3, ScrollText, Menu, Maximize2, Minimize2, BarChart3, ChevronRight, CheckCircle2, XCircle } from 'lucide-react'
 import useCountryBriefStore from '../../stores/countryBriefStore'
 import MetricsRibbon from './blocks/MetricsRibbon'
 import ExecSummaryBlock from './blocks/ExecSummaryBlock'
@@ -509,7 +509,9 @@ function ColumnBriefView({
 export default function CountryBrief() {
   const navigate = useNavigate()
   const downloadMenuRef = useRef(null)
+  const triagePopupRef = useRef(null)
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false)
+  const [triagePopupOpen, setTriagePopupOpen] = useState(false)
   const [viewMode, setViewMode] = useState('columns') // 'columns' | 'scroll'
   const [focusMode, setFocusMode] = useState(false)
   const {
@@ -566,6 +568,9 @@ export default function CountryBrief() {
     function handleClickOutside(event) {
       if (!downloadMenuRef.current?.contains(event.target)) {
         setDownloadMenuOpen(false)
+      }
+      if (!triagePopupRef.current?.contains(event.target)) {
+        setTriagePopupOpen(false)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -876,11 +881,45 @@ export default function CountryBrief() {
                 <h1 className="text-base font-bold text-slate-800">
                   {countryNames[selectedCountry] || selectedCountry}
                 </h1>
-                <p className="text-xs text-slate-400">
-                  {startYear}–{endYear}
-                  {` · ${generationMode === 'deep' ? 'Deep' : 'Light'} mode`}
-                  {focus ? ` · ${focus.slice(0, 60)}${focus.length > 60 ? '...' : ''}` : ''}
-                </p>
+                <div className="flex items-center gap-2">
+                  <p className="text-xs text-slate-400">
+                    {startYear}–{endYear}
+                    {` · ${generationMode === 'deep' ? 'Deep' : 'Light'} mode`}
+                    {focus ? ` · ${focus.slice(0, 60)}${focus.length > 60 ? '...' : ''}` : ''}
+                  </p>
+                  {triageResults.length > 0 && (
+                    <div className="relative" ref={triagePopupRef}>
+                      <button
+                        type="button"
+                        onClick={() => setTriagePopupOpen(v => !v)}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium text-slate-500 bg-slate-100 hover:bg-slate-200 transition"
+                      >
+                        <BarChart3 className="w-2.5 h-2.5" />
+                        {triageResults.filter(t => t.notable).length} KPIs selected · {triageResults.filter(t => !t.notable).length} filtered
+                        <ChevronDown className={`w-2.5 h-2.5 transition-transform ${triagePopupOpen ? 'rotate-180' : ''}`} />
+                      </button>
+                      {triagePopupOpen && (
+                        <div className="absolute left-0 top-full mt-1.5 w-72 rounded-xl border border-slate-200 bg-white shadow-xl py-1 z-[60]">
+                          <div className="divide-y divide-slate-50">
+                            {triageResults.map((t) => (
+                              <div key={t.kpi_id} className="flex items-center gap-2.5 px-3 py-2">
+                                {t.notable ? (
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />
+                                ) : (
+                                  <XCircle className="w-3 h-3 text-slate-300 shrink-0" />
+                                )}
+                                <span className={`text-[11px] ${t.notable ? 'text-slate-700 font-medium' : 'text-slate-400'}`}>
+                                  {t.kpi_name}
+                                </span>
+                                <span className="ml-auto text-[9px] font-mono text-slate-400">{t.score}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -942,7 +981,7 @@ export default function CountryBrief() {
                   <ChevronDown className={`w-3.5 h-3.5 transition-transform ${downloadMenuOpen ? 'rotate-180' : ''}`} />
                 </button>
                 {downloadMenuOpen && (
-                  <div className="absolute right-0 mt-1.5 w-36 rounded-xl border border-slate-200 bg-white shadow-lg py-1 z-20">
+                  <div className="absolute right-0 mt-1.5 w-36 rounded-xl border border-slate-200 bg-white shadow-lg py-1 z-[60]">
                     <button
                       type="button"
                       onClick={handleDownloadHtml}
@@ -1030,7 +1069,6 @@ export default function CountryBrief() {
         <div className="flex flex-1 min-h-0">
           <div className="flex-1 overflow-y-auto">
             <div data-country-brief-report>
-              <TriagePanel triageResults={triageResults} />
               <FreeScrollDocument
                 blocks={blocks}
                 kpiDataCache={kpiDataCache}

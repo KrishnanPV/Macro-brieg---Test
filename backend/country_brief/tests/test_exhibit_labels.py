@@ -15,7 +15,8 @@ def test_compute_exhibit_map_includes_gcc_oil_split_in_sequence():
     assert exhibit_map["2"] == "1B"
     assert exhibit_map["2-oil"] == "1C"
     assert exhibit_map["11"] == "1D"
-    assert exhibit_map["1"] == "1E"
+    # KPI 1 is excluded when KPI 11 is present (combined Real/Nominal toggle)
+    assert "1" not in exhibit_map
     assert exhibit_map["4"] == "2A"
     assert exhibit_map["8"] == "2B"
     assert exhibit_map["7"] == "3A"

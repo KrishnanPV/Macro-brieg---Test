@@ -13,6 +13,17 @@ from backend.services.cost_tracker import record_usage
 
 log = logging.getLogger(__name__)
 
+_CONFIDENCE_RE = re.compile(
+    r"\s*\**\s*[Cc]onfidence\s*:?\s*\**\s*:?\s*"
+    r"(High|Medium|Low|Very\s+High|Moderate)[.\s]*\**\s*$",
+    re.MULTILINE,
+)
+
+
+def _strip_confidence_tags(text: str) -> str:
+    """Remove LLM-generated 'Confidence: High' etc. from the end of lines."""
+    return _CONFIDENCE_RE.sub("", text)
+
 
 def _get_client() -> OpenAI:
     if not OPENAI_API_KEY:
@@ -114,12 +125,12 @@ def parse_brief_blocks(raw_text: str) -> list[dict[str, Any]]:
 
     m = _EXEC_RE.search(raw_text)
     if m:
-        blocks.append({"type": "executive_summary", "content": m.group(1).strip()})
+        blocks.append({"type": "executive_summary", "content": _strip_confidence_tags(m.group(1).strip())})
 
     global_seen_charts: set[str] = set()
     for m in _SECTION_RE.finditer(raw_text):
         title = m.group(1).strip()
-        body = m.group(2).strip()
+        body = _strip_confidence_tags(m.group(2).strip())
         sub_blocks = _reorder_section_charts(_split_narrative_and_charts(body))
         deduped: list[dict[str, Any]] = []
         for sb in sub_blocks:
@@ -135,11 +146,11 @@ def parse_brief_blocks(raw_text: str) -> list[dict[str, Any]]:
 
     m = _OUTLOOK_RE.search(raw_text)
     if m:
-        blocks.append({"type": "outlook", "content": m.group(1).strip()})
+        blocks.append({"type": "outlook", "content": _strip_confidence_tags(m.group(1).strip())})
     else:
         outlook_content = _extract_outlook_fallback(raw_text)
         if outlook_content:
-            blocks.append({"type": "outlook", "content": outlook_content})
+            blocks.append({"type": "outlook", "content": _strip_confidence_tags(outlook_content)})
 
     return blocks
 

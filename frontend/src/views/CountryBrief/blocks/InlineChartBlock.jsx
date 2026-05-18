@@ -275,6 +275,8 @@ function CagrXAxisTick({ x, y, payload, axisFmt, cagrResult }) {
   )
 }
 
+const GDP_SECTOR_PAIR = { '11': '1', '1': '11' }
+
 export default function InlineChartBlock({
   kpiId,
   kpiDataCache = [],
@@ -296,6 +298,13 @@ export default function InlineChartBlock({
   const lookupId = isOilGdpSplit ? '2' : String(kpiId)
   const isFdiKpi = lookupId === '4'
   const isInflationKpi = lookupId === '7'
+
+  const pairedKpiId = GDP_SECTOR_PAIR[lookupId] || null
+  const hasPairedData = pairedKpiId && kpiDataCache.some(r => String(r.kpi_id) === pairedKpiId)
+  const [sectorMode, setSectorMode] = useState(lookupId === '11' ? 'real' : lookupId === '1' ? 'nominal' : null)
+  const effectiveKpiId = (sectorMode === 'nominal' && lookupId === '11') ? '1'
+    : (sectorMode === 'real' && lookupId === '1') ? '11'
+    : lookupId
   const hasFdiBenchmark =
     Array.isArray(fdiBenchmark?.countries) &&
     fdiBenchmark.countries.length > 0
@@ -304,7 +313,7 @@ export default function InlineChartBlock({
     hasFdiBenchmark &&
     fdiFlowMode !== 'chart'
 
-  const kpiResult = kpiDataCache.find(r => String(r.kpi_id) === lookupId)
+  const kpiResult = kpiDataCache.find(r => String(r.kpi_id) === effectiveKpiId)
   const defaults = KPI_CHART_DEFAULTS[String(kpiId)] || DEFAULT_CHART
   const hasDualFreq = !!(kpiResult?.series_annual?.length)
   const hasQuarterlyPoints = hasRenderablePoints(kpiResult?.series)
@@ -356,9 +365,14 @@ export default function InlineChartBlock({
     }
     const { seriesKeys: sk, rows: r } = buildRowsFromSeries(filtered, kpiResult.unit)
     const unit = filtered[0]?.unit || kpiResult.unit || ''
-    const name = isOilGdpSplit ? 'GDP - Real (Oil GDP)' : kpiResult.kpi_name
+    let name = isOilGdpSplit ? 'GDP - Real (Oil GDP)' : kpiResult.kpi_name
+    if (sectorMode === 'real' && (lookupId === '11' || lookupId === '1')) {
+      name = 'GDP by Sector — Real'
+    } else if (sectorMode === 'nominal' && (lookupId === '11' || lookupId === '1')) {
+      name = 'GDP by Sector — Nominal'
+    }
     return { seriesKeys: sk, rows: r, kpiName: name, unitLabel: unit }
-  }, [kpiResult, activeSeries, isOilGdpSplit])
+  }, [kpiResult, activeSeries, isOilGdpSplit, sectorMode, lookupId])
 
   const displayUnitLabel = useMemo(() => {
     if (!unitLabel) return ''
@@ -537,6 +551,20 @@ export default function InlineChartBlock({
             )}
           </div>
           <div className="flex items-center gap-1.5">
+            {hasPairedData && sectorMode && (
+              <div className="inline-flex rounded-lg border border-slate-200 overflow-hidden">
+                <button type="button" onClick={() => setSectorMode('real')}
+                  className={`px-2.5 py-1 text-[11px] font-medium transition-all ${
+                    sectorMode === 'real' ? 'bg-mck-navy text-white' : 'bg-white text-slate-500 hover:bg-slate-50'
+                  }`}
+                >Real</button>
+                <button type="button" onClick={() => setSectorMode('nominal')}
+                  className={`px-2.5 py-1 text-[11px] font-medium transition-all border-l border-slate-200 ${
+                    sectorMode === 'nominal' ? 'bg-mck-navy text-white' : 'bg-white text-slate-500 hover:bg-slate-50'
+                  }`}
+                >Nominal</button>
+              </div>
+            )}
             {hasDualFreq && (
               <div className={isFdiKpi && isBenchmarkMode ? 'opacity-0 pointer-events-none' : ''}>
                 <ChartFrequencyToggle value={freq} loading={false} onChange={setFreq} />
@@ -619,12 +647,12 @@ export default function InlineChartBlock({
             </div>
           )}
           <ResponsiveContainer width="100%" height={chartHeight}>
-            <ComposedChart key={`${activeVizMode}-${freq}`} data={chartRows}
+            <ComposedChart key={`${activeVizMode}-${freq}-${sectorMode || ''}`} data={chartRows}
               margin={{ top: activeVizMode === 'line' ? 18 : 5, right: hasOilOverlay ? 36 : 24, bottom: 0, left: 0 }}>
               {activeVizMode === 'line' && (
                 <defs>
                   {seriesKeys.map(sk => (
-                    <linearGradient key={sk.key} id={`brief-grad-${kpiId}-${sk.key.replace(/\W/g, '_')}`} x1="0" y1="0" x2="0" y2="1">
+                    <linearGradient key={sk.key} id={`brief-grad-${effectiveKpiId}-${sk.key.replace(/\W/g, '_')}`} x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor={sk.color} stopOpacity={0.15} />
                       <stop offset="95%" stopColor={sk.color} stopOpacity={0} />
                     </linearGradient>
@@ -644,8 +672,8 @@ export default function InlineChartBlock({
                 <YAxis yAxisId="right" orientation="right"
                   tick={{ fontSize: 10, fill: OIL_OVERLAY_COLOR, fontFamily: 'inherit' }} tickFormatter={formatAxisTick}
                   axisLine={false} tickLine={false} width={48}
-                  label={{ value: oilOverlay.unit || '', angle: 90, position: 'insideRight',
-                    style: { fontSize: 10, fill: OIL_OVERLAY_COLOR, fontFamily: 'inherit' }, dx: 4 }} />
+                  label={{ value: oilOverlay.unit || '', angle: -90, position: 'insideRight',
+                    style: { fontSize: 9, fill: OIL_OVERLAY_COLOR, fontFamily: 'inherit' }, dx: 12 }} />
               )}
               <Tooltip content={<CustomTooltip dateFormatter={tooltipFmt} />} />
               {isInflationKpi && (
@@ -679,7 +707,7 @@ export default function InlineChartBlock({
                 : <>
                     {seriesKeys.map((sk, skIdx) => (
                       <Area key={sk.key} type="linear" dataKey={sk.key} stroke={sk.color}
-                        fill={`url(#brief-grad-${kpiId}-${sk.key.replace(/\W/g, '_')})`}
+                        fill={`url(#brief-grad-${effectiveKpiId}-${sk.key.replace(/\W/g, '_')})`}
                         strokeWidth={2} yAxisId="left"
                         dot={(props) => {
                           if (!keyPointIndices.has(props.index)) return null

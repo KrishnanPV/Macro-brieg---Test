@@ -287,9 +287,9 @@ def fetch_oil_price_data(
             log.info("Oil overlay: found '%s' for %s (%d points)", ind, country, len(series.points))
             return IndicatorSeries(
                 country=country,
-                indicator=f"Oil price ({ccy})",
+                indicator=f"Oil price ({ccy}/bbl)",
                 points=series.points,
-                unit=series.unit or ccy,
+                unit=f"{ccy}/bbl",
             )
         if err:
             log.debug("Oil overlay probe: %s", err)

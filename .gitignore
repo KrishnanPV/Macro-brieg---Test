@@ -45,3 +45,4 @@ plan/
 .cursor/
 output/
 backend/country_brief/_test_report.json
+research/

@@ -22,7 +22,7 @@ class KpiSpec:
 
 def _kpi_specs() -> list[KpiSpec]:
     return [
-        KpiSpec("3", "GDP growth by economic activity", "oxford", "Q",
+        KpiSpec("3", "Real GDP Growth (YoY)", "oxford", "Q",
                 ["GDP real, annual growth"],
                 "EAP_TIMERANGE_Q",
                 "Aggregate real GDP growth (y/y)."),

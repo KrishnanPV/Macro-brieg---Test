@@ -287,7 +287,29 @@ def _build_exhibit_kpi_ids(*, notable_kpi_ids: list[str], is_gcc: bool) -> list[
     ids = [str(k).strip() for k in notable_kpi_ids if str(k).strip()]
     if is_gcc and "2" in ids and "2-oil" not in ids:
         ids.append("2-oil")
+    # KPI 11 (real sector split) and KPI 1 (nominal sector split) are combined
+    # into a single chart with a Real/Nominal toggle on the frontend.
+    if "11" in ids and "1" in ids:
+        ids.remove("1")
     return ids
+
+
+def _merge_sector_gdp_charts(
+    blocks: list[dict[str, Any]], ids_with_data: set[str],
+) -> list[dict[str, Any]]:
+    """Remove separate KPI 1 chart when KPI 11 is present — the frontend
+    renders a single combined chart with a Real/Nominal toggle."""
+    if "11" not in ids_with_data or "1" not in ids_with_data:
+        return blocks
+    for block in blocks:
+        if block.get("type") != "section":
+            continue
+        children = block.get("children") or []
+        block["children"] = [
+            c for c in children
+            if not (c.get("type") == "chart_ref" and str(c.get("kpi_id", "")).strip() == "1")
+        ]
+    return blocks
 
 
 def _assign_exhibit_labels(blocks: list[dict[str, Any]], exhibit_map: dict[str, str]) -> None:
@@ -654,6 +676,7 @@ def run_pipeline(
         yield _ndjson({"type": "status", "content": "Applying output contract guardrails..."})
 
     blocks = parse_brief_blocks(guarded_text)
+    blocks = _merge_sector_gdp_charts(blocks, ids_with_data)
     blocks = _ensure_kpi9_demographics_chart(blocks, ids_with_data)
     fallback_chart_ids = [kid for kid in available_ids if kid in ids_with_data]
     blocks = _ensure_chart_blocks(blocks, preferred_chart_ids=fallback_chart_ids)
