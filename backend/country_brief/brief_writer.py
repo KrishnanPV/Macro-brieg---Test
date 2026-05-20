@@ -13,16 +13,22 @@ from backend.services.cost_tracker import record_usage
 
 log = logging.getLogger(__name__)
 
-_CONFIDENCE_RE = re.compile(
-    r"\s*\**\s*[Cc]onfidence\s*:?\s*\**\s*:?\s*"
-    r"(High|Medium|Low|Very\s+High|Moderate)[.\s]*\**\s*$",
+_CONFIDENCE_LINE_RE = re.compile(
+    r"^[ \t]*(?:[-*]\s+)?\**\s*[Cc]onfidence\s*[:=\u2013\u2014].*\n?",
     re.MULTILINE,
 )
 
 
 def _strip_confidence_tags(text: str) -> str:
-    """Remove LLM-generated 'Confidence: High' etc. from the end of lines."""
-    return _CONFIDENCE_RE.sub("", text)
+    """Drop any line whose primary content is a 'Confidence: ...' flag.
+
+    Matches with or without a leading bullet (``-``/``*``), with or without
+    bold markdown wrappers, and regardless of any trailing parenthetical
+    justification (e.g. ``- **Confidence: Medium-High** (clear shift).``).
+    The trailing newline is consumed so emptied bullet rows do not leave a
+    blank line behind.
+    """
+    return _CONFIDENCE_LINE_RE.sub("", text)
 
 
 def _get_client() -> OpenAI:

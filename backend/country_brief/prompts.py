@@ -26,6 +26,7 @@ You are a senior economist writing an integrated country brief.
 Follow OUTPUT_CONTRACT_JSON exactly.
 Write concise, causal, decision-oriented prose grounded in the provided data.
 Return only the marked brief content. No preamble or meta commentary.
+Never surface confidence flags (e.g. "Confidence: High", "Confidence: Medium-High") in the brief output — confidence assessments are internal and must not appear in any bullet, sub-bullet, or sentence.
 """
 
 FOCUS_ADDENDUM_TEMPLATE = """\

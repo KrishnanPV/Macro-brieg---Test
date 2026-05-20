@@ -1,7 +1,11 @@
-"""Tests for executive-summary bullet nesting normalization."""
+"""Tests for executive-summary bullet nesting normalization and confidence stripping."""
 from __future__ import annotations
 
-from backend.country_brief.brief_writer import _normalize_bullet_nesting, parse_brief_blocks
+from backend.country_brief.brief_writer import (
+    _normalize_bullet_nesting,
+    _strip_confidence_tags,
+    parse_brief_blocks,
+)
 
 
 def test_normalizes_flat_bullets_into_parent_and_children():
@@ -78,6 +82,77 @@ def test_continuation_lines_are_attached_to_previous_bullet():
         "  - supporting evidence"
     )
     assert result == expected
+
+
+def test_strips_confidence_line_with_parenthetical_justification():
+    raw = (
+        "- supporting evidence one\n"
+        "- **Confidence: High** (data + policy linkage).\n"
+        "- supporting evidence two\n"
+    )
+
+    assert _strip_confidence_tags(raw) == (
+        "- supporting evidence one\n"
+        "- supporting evidence two\n"
+    )
+
+
+def test_strips_confidence_line_with_hyphenated_level():
+    raw = (
+        "- detail\n"
+        "- **Confidence: Medium-High** (clear real share shift).\n"
+    )
+
+    assert _strip_confidence_tags(raw) == "- detail\n"
+
+
+def test_strips_confidence_variants():
+    cases = [
+        "Confidence: Low",
+        "**Confidence: Moderate**",
+        "- confidence: Very High",
+        "  - **Confidence: High-Medium** (mixed signals).",
+        "* Confidence \u2013 High",
+        "* Confidence \u2014 High",
+    ]
+    for line in cases:
+        assert _strip_confidence_tags(line + "\n") == "", line
+        assert _strip_confidence_tags(line) == "", line
+
+
+def test_does_not_strip_legitimate_sentences_starting_with_confidence():
+    raw = "Confidence in the recovery has improved as inflation cooled.\n"
+    assert _strip_confidence_tags(raw) == raw
+
+
+def test_parse_brief_blocks_drops_confidence_subbullets_end_to_end():
+    raw = (
+        "[EXEC_SUMMARY]\n"
+        "- **Headline.** lead\n"
+        "- supporting evidence\n"
+        "- **Confidence: High** (data + policy linkage).\n"
+        "[/EXEC_SUMMARY]\n"
+        "[SECTION:Economic Performance & Growth]\n"
+        "- claim\n"
+        "  - **Confidence: Medium-High** (clear shift).\n"
+        "[/SECTION]\n"
+        "[OUTLOOK]o[/OUTLOOK]\n"
+    )
+
+    blocks = parse_brief_blocks(raw)
+    exec_block = next(b for b in blocks if b["type"] == "executive_summary")
+    section = next(b for b in blocks if b["type"] == "section")
+
+    assert "Confidence" not in exec_block["content"]
+    assert exec_block["content"] == (
+        "- **Headline.** lead\n"
+        "  - supporting evidence"
+    )
+
+    section_text = "\n".join(
+        c.get("content", "") for c in section["children"] if c.get("type") == "narrative"
+    )
+    assert "Confidence" not in section_text
 
 
 def test_parse_brief_blocks_normalizes_executive_summary():
