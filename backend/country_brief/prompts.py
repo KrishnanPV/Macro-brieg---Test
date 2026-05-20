@@ -36,21 +36,46 @@ USER FOCUS — the analyst has requested emphasis on:
 Weight your analysis toward this focus. Dedicate more depth and narrative space to KPIs and themes relevant to this focus. You may still cover other notable themes, but this focus should be the primary lens.
 """
 
-BRIEF_SECTION_TITLES = [
-    "Economic Performance & Growth",
-    "Investment & External Position",
-    "Inflation & Monetary Conditions",
-    "Labour Market & Domestic Demand",
-    "Demographics & Structural Factors",
-]
-
-_SECTION_KPI_MAP = {
-    "Economic Performance & Growth": ["3", "2", "11", "1"],
-    "Investment & External Position": ["4", "8"],
-    "Inflation & Monetary Conditions": ["7"],
-    "Labour Market & Domestic Demand": ["5", "6"],
-    "Demographics & Structural Factors": ["9"],
+_SECTION_SPECS: dict[str, dict] = {
+    "default": {
+        "titles": [
+            "Economic Structure & Growth",
+            "Inflation",
+            "External Position & Investment",
+            "Domestic Demand & Public Finances",
+            "Labour Market & Demographics",
+        ],
+        "kpi_map": {
+            "Economic Structure & Growth":       ["2", "3", "11", "1"],
+            "Inflation":                         ["7"],
+            "External Position & Investment":    ["4"],
+            "Domestic Demand & Public Finances":  ["6", "8"],
+            "Labour Market & Demographics":      ["5", "9"],
+        },
+    },
+    "legacy": {
+        "titles": [
+            "Economic Performance & Growth",
+            "Investment & External Position",
+            "Inflation & Monetary Conditions",
+            "Labour Market & Domestic Demand",
+            "Demographics & Structural Factors",
+        ],
+        "kpi_map": {
+            "Economic Performance & Growth": ["3", "2", "11", "1"],
+            "Investment & External Position": ["4", "8"],
+            "Inflation & Monetary Conditions": ["7"],
+            "Labour Market & Domestic Demand": ["5", "6"],
+            "Demographics & Structural Factors": ["9"],
+        },
+    },
 }
+
+BRIEF_SECTION_TITLES = _SECTION_SPECS["legacy"]["titles"]
+
+
+def _get_section_spec(profile: str = "default") -> dict:
+    return _SECTION_SPECS.get(profile, _SECTION_SPECS["default"])
 
 _CORE_CONTRACT = {
     "version": "v1",
@@ -72,16 +97,22 @@ _CORE_CONTRACT = {
 }
 
 
-def _required_sections_for_kpis(notable_kpi_ids: list[str]) -> list[str]:
+def _required_sections_for_kpis(
+    notable_kpi_ids: list[str],
+    profile: str = "default",
+) -> list[str]:
+    spec = _get_section_spec(profile)
+    titles = spec["titles"]
+    kpi_map = spec["kpi_map"]
     if not notable_kpi_ids:
-        return list(BRIEF_SECTION_TITLES)
+        return list(titles)
     notable = {str(k) for k in notable_kpi_ids}
     required: list[str] = []
-    for section_title in BRIEF_SECTION_TITLES:
-        section_kpis = _SECTION_KPI_MAP.get(section_title, [])
+    for section_title in titles:
+        section_kpis = kpi_map.get(section_title, [])
         if any(k in notable for k in section_kpis):
             required.append(section_title)
-    return required or list(BRIEF_SECTION_TITLES)
+    return required or list(titles)
 
 
 def _compact_result_payload(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -327,8 +358,12 @@ def build_brief_prompt(
     focus: str | None = None,
     manual_selection: bool = False,
     fdi_benchmark_context: dict[str, Any] | None = None,
+    chart_order_profile: str = "default",
 ) -> list[dict[str, str]]:
     """Assemble the ChatCompletion messages for brief generation."""
+    spec = _get_section_spec(chart_order_profile)
+    kpi_map = spec["kpi_map"]
+
     lab_guidelines = _load_lab_brief_writer_guidelines()
     system_prompt = BRIEF_WRITER_SYSTEM_PROMPT
     if lab_guidelines:
@@ -347,12 +382,12 @@ def build_brief_prompt(
     filtered_results = [r for r in results if str(r.get("kpi_id", "")) in notable_set]
     filtered_facts = [f for f in derived_facts if str(f.get("kpi_id", "")) in notable_set]
 
-    required_sections = _required_sections_for_kpis(notable_kpi_ids)
+    required_sections = _required_sections_for_kpis(notable_kpi_ids, profile=chart_order_profile)
     output_contract = {
         **_CORE_CONTRACT,
         "required_sections": required_sections,
         "section_kpi_map": {
-            section: [kid for kid in _SECTION_KPI_MAP.get(section, []) if kid in notable_set]
+            section: [kid for kid in kpi_map.get(section, []) if kid in notable_set]
             for section in required_sections
         },
     }

@@ -115,6 +115,7 @@ class CountryBriefGenerateRequest(BaseModel):
     # (signal detection, Perplexity evidence search, event extraction, scored
     # insights) before generating the narrative.
     deep_analysis: bool = False
+    chart_order_profile: Literal["default", "legacy"] = "default"
 
 
 class CountryBriefRefineRequest(BaseModel):

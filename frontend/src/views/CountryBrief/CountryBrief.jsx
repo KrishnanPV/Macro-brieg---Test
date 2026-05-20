@@ -522,6 +522,7 @@ export default function CountryBrief() {
     generateBrief, resetBrief, openSidebar, setFdiFlowMode,
     kpiSelectionMode, setKpiSelectionMode, kpiCatalog, selectedKpiIds, toggleKpiId, fetchKpiCatalog,
     generationMode, setGenerationMode,
+    chartOrderProfile, setChartOrderProfile,
     debugMode, fetchDebugMode, storeTestReport, loadTestReport,
     refreshFdiBenchmark,
   } = useCountryBriefStore()
@@ -799,6 +800,41 @@ export default function CountryBrief() {
             </div>
             <p className="text-[10px] text-slate-400 text-center mt-2">
               Light is default and lower-cost; deep adds richer external evidence.
+            </p>
+          </div>
+
+          <div className="mt-8 max-w-md mx-auto">
+            <h3 className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-3 text-center">Chart Order</h3>
+            <div className="flex justify-center">
+              <div className="inline-flex rounded-xl overflow-hidden border border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setChartOrderProfile('default')}
+                  className={`px-5 py-2.5 text-xs font-semibold transition-all ${
+                    chartOrderProfile === 'default'
+                      ? 'bg-slate-800 text-white'
+                      : 'bg-white text-slate-500 hover:bg-slate-50'
+                  }`}
+                >
+                  New Flow
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChartOrderProfile('legacy')}
+                  className={`px-5 py-2.5 text-xs font-semibold transition-all ${
+                    chartOrderProfile === 'legacy'
+                      ? 'bg-slate-800 text-white'
+                      : 'bg-white text-slate-500 hover:bg-slate-50'
+                  }`}
+                >
+                  Standard
+                </button>
+              </div>
+            </div>
+            <p className="text-[10px] text-slate-400 text-center mt-2">
+              {chartOrderProfile === 'default'
+                ? 'Oil/Non-oil → Growth → Sector → Inflation → FDI → Consumption → Debt → Unemployment → Population'
+                : 'Growth → Oil/Non-oil → Sector → FDI → Debt → Inflation → Unemployment → Consumption → Population'}
             </p>
           </div>
 

@@ -131,40 +131,82 @@ def _ensure_chart_blocks(
     return blocks
 
 
-_KPI_SECTION_ORDER = {
-    "3": 1, "2": 1, "11": 1, "1": 1,
-    "2-oil": 1,
-    "4": 2, "8": 2,
-    "7": 3,
-    "5": 4, "6": 4,
-    "9": 5,
+_PROFILE_SECTION_ORDER: dict[str, dict[str, int]] = {
+    "default": {
+        "2": 1, "2-oil": 1, "3": 1, "11": 1, "1": 1,
+        "7": 2,
+        "4": 3,
+        "6": 4, "8": 4,
+        "5": 5, "9": 5,
+    },
+    "legacy": {
+        "3": 1, "2": 1, "11": 1, "1": 1,
+        "2-oil": 1,
+        "4": 2, "8": 2,
+        "7": 3,
+        "5": 4, "6": 4,
+        "9": 5,
+    },
 }
 
-_KPI_DISPLAY_ORDER: dict[str, int] = {
-    "3": 0, "2": 1, "2-oil": 2, "11": 3, "1": 4,
-    "4": 0, "8": 1,
-    "7": 0,
-    "5": 0, "6": 1,
-    "9": 0,
+_PROFILE_DISPLAY_ORDER: dict[str, dict[str, int]] = {
+    "default": {
+        "2": 0, "2-oil": 1, "3": 2, "11": 3, "1": 4,
+        "7": 0,
+        "4": 0,
+        "6": 0, "8": 1,
+        "5": 0, "9": 1,
+    },
+    "legacy": {
+        "3": 0, "2": 1, "2-oil": 2, "11": 3, "1": 4,
+        "4": 0, "8": 1,
+        "7": 0,
+        "5": 0, "6": 1,
+        "9": 0,
+    },
 }
 
-_SECTION_KPI_REQUIREMENTS: list[tuple[str, set[str]]] = [
-    ("Economic Performance & Growth", {"1", "2", "3", "11"}),
-    ("Investment & External Position", {"4", "8"}),
-    ("Inflation & Monetary Conditions", {"7"}),
-    ("Labour Market & Domestic Demand", {"5", "6"}),
-    ("Demographics & Structural Factors", {"9"}),
-]
+_PROFILE_SECTION_KPI_REQUIREMENTS: dict[str, list[tuple[str, set[str]]]] = {
+    "default": [
+        ("Economic Structure & Growth", {"1", "2", "3", "11"}),
+        ("Inflation", {"7"}),
+        ("External Position & Investment", {"4"}),
+        ("Domestic Demand & Public Finances", {"6", "8"}),
+        ("Labour Market & Demographics", {"5", "9"}),
+    ],
+    "legacy": [
+        ("Economic Performance & Growth", {"1", "2", "3", "11"}),
+        ("Investment & External Position", {"4", "8"}),
+        ("Inflation & Monetary Conditions", {"7"}),
+        ("Labour Market & Domestic Demand", {"5", "6"}),
+        ("Demographics & Structural Factors", {"9"}),
+    ],
+}
+
+
+def _get_pipeline_profile(profile: str) -> tuple[
+    dict[str, int], dict[str, int], list[tuple[str, set[str]]]
+]:
+    p = profile if profile in _PROFILE_SECTION_ORDER else "default"
+    return (
+        _PROFILE_SECTION_ORDER[p],
+        _PROFILE_DISPLAY_ORDER[p],
+        _PROFILE_SECTION_KPI_REQUIREMENTS[p],
+    )
 
 _SRC_CITATION_RE = re.compile(r"\[src:(\d+)\]", re.IGNORECASE)
 
 
-def _required_section_titles(ids_with_data: set[str]) -> list[str]:
+def _required_section_titles(
+    ids_with_data: set[str],
+    profile: str = "default",
+) -> list[str]:
+    _, _, section_reqs = _get_pipeline_profile(profile)
     required: list[str] = []
-    for title, kpis in _SECTION_KPI_REQUIREMENTS:
+    for title, kpis in section_reqs:
         if not ids_with_data or any(k in ids_with_data for k in kpis):
             required.append(title)
-    return required or [title for title, _ in _SECTION_KPI_REQUIREMENTS]
+    return required or [title for title, _ in section_reqs]
 
 
 def _has_tagged_section(raw_text: str, title: str) -> bool:
@@ -266,16 +308,20 @@ def _apply_brief_contract_guardrails(
     return text, issues
 
 
-def _compute_exhibit_map(notable_kpi_ids: list[str]) -> dict[str, str]:
+def _compute_exhibit_map(
+    notable_kpi_ids: list[str],
+    profile: str = "default",
+) -> dict[str, str]:
     """Pre-compute deterministic exhibit labels (e.g. '1A', '2A') from notable KPIs."""
+    section_order, display_order, _ = _get_pipeline_profile(profile)
     section_kpis: dict[int, list[str]] = {}
     for kid in notable_kpi_ids:
-        sec = _KPI_SECTION_ORDER.get(kid)
+        sec = section_order.get(kid)
         if sec:
             section_kpis.setdefault(sec, []).append(kid)
     exhibit_map: dict[str, str] = {}
     for sec in sorted(section_kpis):
-        kpis = sorted(section_kpis[sec], key=lambda k: _KPI_DISPLAY_ORDER.get(k, 99))
+        kpis = sorted(section_kpis[sec], key=lambda k: display_order.get(k, 99))
         for i, kid in enumerate(kpis):
             letter = chr(ord("A") + i)
             exhibit_map[kid] = f"{sec}{letter}"
@@ -347,7 +393,11 @@ def _check_exhibit_label_sequence(blocks: list[dict[str, Any]]) -> list[str]:
 
 
 def _is_demographics_section_title(title: str) -> bool:
-    """Match demographics section even if the model shortens the heading."""
+    """Match demographics section even if the model shortens the heading.
+
+    Must match across all chart_order_profile variants — both "Demographics &
+    Structural Factors" (legacy) and "Labour Market & Demographics" (default).
+    """
     t = (title or "").lower()
     return "demographic" in t
 
@@ -425,6 +475,30 @@ def _inject_oil_gdp_split(blocks: list[dict[str, Any]], is_gcc: bool, exhibit_ma
             break
 
 
+def _reorder_section_charts(
+    blocks: list[dict[str, Any]],
+    profile: str = "default",
+) -> list[dict[str, Any]]:
+    """Sort chart_ref children within each section by the profile's display order.
+
+    The LLM may emit [CHART:kpi_id] markers in any order; this step enforces
+    the canonical chart sequence so the frontend renders them correctly.
+    Narrative children keep their relative positions between charts.
+    """
+    _, display_order, _ = _get_pipeline_profile(profile)
+    for block in blocks:
+        if block.get("type") != "section":
+            continue
+        children = block.get("children") or []
+        charts = [c for c in children if c.get("type") == "chart_ref"]
+        non_charts = [c for c in children if c.get("type") != "chart_ref"]
+        if len(charts) <= 1:
+            continue
+        charts.sort(key=lambda c: display_order.get(str(c.get("kpi_id", "")), 99))
+        block["children"] = [*charts, *non_charts]
+    return blocks
+
+
 def run_pipeline(
     req: CountryBriefGenerateRequest,
     *,
@@ -437,6 +511,7 @@ def run_pipeline(
     `backend.insights_pipeline.stages`.
     Final stage: stream country brief markdown and parse into frontend blocks.
     """
+    profile = getattr(req, "chart_order_profile", "default") or "default"
     all_oxford_ids = [s.id for s in SPECS if s.source == "oxford"]
     manual_selection = bool(req.kpi_ids)
     available_ids = req.kpi_ids if req.kpi_ids else all_oxford_ids
@@ -609,6 +684,7 @@ def run_pipeline(
         focus=req.focus,
         manual_selection=manual_selection,
         fdi_benchmark_context=fdi_benchmark_payload,
+        chart_order_profile=profile,
     )
 
     interpretation_json = json.dumps(signal_interpretation, indent=2, default=str)
@@ -644,7 +720,7 @@ def run_pipeline(
         )
 
     exhibit_kpi_ids = _build_exhibit_kpi_ids(notable_kpi_ids=notable_ids, is_gcc=is_gcc)
-    exhibit_map = _compute_exhibit_map(exhibit_kpi_ids)
+    exhibit_map = _compute_exhibit_map(exhibit_kpi_ids, profile=profile)
     if exhibit_map:
         exhibit_lines = ", ".join(f"KPI {k} = ({v})" for k, v in sorted(exhibit_map.items()))
         injection += (
@@ -664,7 +740,7 @@ def run_pipeline(
             full_text = payload
 
     # ── Phase 5: Parse and finalize ──────────────────────────────────────
-    required_sections = _required_section_titles(ids_with_data)
+    required_sections = _required_section_titles(ids_with_data, profile=profile)
     guarded_text, guardrail_issues = _apply_brief_contract_guardrails(
         full_text,
         required_sections=required_sections,
@@ -682,6 +758,7 @@ def run_pipeline(
     blocks = _ensure_chart_blocks(blocks, preferred_chart_ids=fallback_chart_ids)
     _assign_exhibit_labels(blocks, exhibit_map)
     _inject_oil_gdp_split(blocks, is_gcc, exhibit_map)
+    blocks = _reorder_section_charts(blocks, profile=profile)
     exhibit_issues = _check_exhibit_label_sequence(blocks)
     if exhibit_issues:
         log.warning("Non-sequential exhibit labels detected: %s", "; ".join(exhibit_issues))

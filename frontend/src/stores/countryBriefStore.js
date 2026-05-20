@@ -40,6 +40,8 @@ const useCountryBriefStore = create(
       selectedKpiIds: [],
       /** Analysis depth for backend pipeline */
       generationMode: 'light',
+      /** Chart ordering profile sent to the backend */
+      chartOrderProfile: 'default',
 
       // --- Generation state ---
       generating: false,
@@ -79,6 +81,9 @@ const useCountryBriefStore = create(
       setFocus: (f) => set({ focus: f }),
       setGenerationMode: (mode) => set({
         generationMode: mode === 'deep' ? 'deep' : 'light',
+      }),
+      setChartOrderProfile: (profile) => set({
+        chartOrderProfile: profile === 'legacy' ? 'legacy' : 'default',
       }),
       setError: (e) => set({ error: e }),
       setFdiFlowMode: (mode) => set({
@@ -216,6 +221,7 @@ const useCountryBriefStore = create(
         kpiSelectionMode: 'auto',
         selectedKpiIds: [],
         generationMode: 'light',
+        chartOrderProfile: 'default',
       }),
 
       /**
@@ -299,7 +305,7 @@ const useCountryBriefStore = create(
 
       // --- Brief generation (streaming) ---
       generateBrief: async () => {
-        const { selectedCountry, startYear, endYear, focus, generationMode, kpiSelectionMode, selectedKpiIds } = get()
+        const { selectedCountry, startYear, endYear, focus, generationMode, kpiSelectionMode, selectedKpiIds, chartOrderProfile } = get()
         if (!selectedCountry) {
           set({ error: 'Select a country.' })
           return
@@ -322,6 +328,7 @@ const useCountryBriefStore = create(
           end_year: endYear,
           focus: focus || null,
           deep_analysis: generationMode === 'deep',
+          chart_order_profile: chartOrderProfile,
         }
         if (kpiSelectionMode === 'manual') {
           payload.kpi_ids = selectedKpiIds
@@ -447,6 +454,7 @@ const useCountryBriefStore = create(
         endYear: state.endYear,
         focus: state.focus,
         generationMode: state.generationMode,
+        chartOrderProfile: state.chartOrderProfile,
         blocks: state.blocks,
         kpiDataCache: state.kpiDataCache,
         fdiBenchmark: state.fdiBenchmark,
