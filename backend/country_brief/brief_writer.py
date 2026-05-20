@@ -46,6 +46,83 @@ _SECTION_RE = re.compile(r"\[SECTION:([^\]]+)\](.*?)\[/SECTION\]", re.DOTALL)
 _OUTLOOK_RE = re.compile(r"\[OUTLOOK\](.*?)\[/OUTLOOK\]", re.DOTALL)
 _CHART_RE = re.compile(r"\[CHART:\s*(\d+)\s*\]", re.IGNORECASE)
 _TW_HW_RE = re.compile(r"\*\*Tailwinds\*\*", re.IGNORECASE)
+_BULLET_RE = re.compile(r"^(\s*)([-*])\s+(.*)$")
+
+
+def _normalize_bullet_nesting(text: str) -> str:
+    """Re-nest bullet lists so non-bold bullets become children of the preceding bold-led bullet.
+
+    The brief contract requires top-level bullets to start with a bold lead phrase
+    (``**...**``) and supporting evidence to live in indented sub-bullets. LLM output
+    is inconsistent: sometimes nested, often flat. This normalizes the structure
+    deterministically so the frontend can render proper indentation.
+
+    The transformation is only applied when the text contains both bold-led and
+    non-bold bullets (otherwise there is nothing to disambiguate and we leave the
+    original text untouched).
+    """
+    lines = text.splitlines()
+    bullets: list[tuple[int, str]] = []  # (indent, content)
+    preface: list[str] = []
+    trailing: list[str] = []
+    saw_bullet = False
+
+    for raw in lines:
+        m = _BULLET_RE.match(raw)
+        if m:
+            saw_bullet = True
+            indent = len(m.group(1))
+            content = m.group(3).strip()
+            bullets.append((indent, content))
+            continue
+
+        stripped = raw.strip()
+        if not stripped:
+            if saw_bullet:
+                # Blank lines inside the bullet block — drop to keep markdown tidy.
+                continue
+            preface.append(raw)
+            continue
+
+        if saw_bullet and bullets:
+            # Continuation of the previous bullet (no bullet marker).
+            indent, content = bullets[-1]
+            bullets[-1] = (indent, f"{content} {stripped}".strip())
+        elif saw_bullet:
+            trailing.append(raw)
+        else:
+            preface.append(raw)
+
+    if not bullets:
+        return text
+
+    bold_count = sum(1 for _, c in bullets if c.startswith("**"))
+    if bold_count == 0 or bold_count == len(bullets):
+        # Nothing to re-nest — leave the original text untouched.
+        return text
+
+    out: list[str] = []
+    if preface:
+        out.extend(p.rstrip() for p in preface)
+        if out and out[-1] != "":
+            out.append("")
+
+    current_parent_idx: int | None = None
+    for _, content in bullets:
+        if content.startswith("**"):
+            out.append(f"- {content}")
+            current_parent_idx = len(out) - 1
+        elif current_parent_idx is None:
+            # Orphan supporting bullet before any bold parent — keep at top level.
+            out.append(f"- {content}")
+        else:
+            out.append(f"  - {content}")
+
+    if trailing:
+        out.append("")
+        out.extend(t.rstrip() for t in trailing)
+
+    return "\n".join(out).strip()
 
 
 def _parse_metrics_ribbon(text: str) -> list[dict[str, str]]:
@@ -125,7 +202,8 @@ def parse_brief_blocks(raw_text: str) -> list[dict[str, Any]]:
 
     m = _EXEC_RE.search(raw_text)
     if m:
-        blocks.append({"type": "executive_summary", "content": _strip_confidence_tags(m.group(1).strip())})
+        exec_content = _normalize_bullet_nesting(_strip_confidence_tags(m.group(1).strip()))
+        blocks.append({"type": "executive_summary", "content": exec_content})
 
     global_seen_charts: set[str] = set()
     for m in _SECTION_RE.finditer(raw_text):

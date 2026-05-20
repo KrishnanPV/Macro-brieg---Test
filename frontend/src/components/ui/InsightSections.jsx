@@ -32,6 +32,40 @@ function inlineFmt(s, newsCatalog) {
   })
 }
 
+function renderNestedList(items, newsCatalog, keyBase) {
+  const rendered = []
+  let idx = 0
+  while (idx < items.length) {
+    const item = items[idx]
+    const children = []
+    let next = idx + 1
+    while (next < items.length && items[next].depth > item.depth) {
+      children.push(items[next])
+      next++
+    }
+    rendered.push(
+      <li key={`${keyBase}-${idx}`} className="flex flex-col gap-1">
+        <div className="flex items-start gap-2">
+          <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-mck-deep shrink-0" />
+          <span>{inlineFmt(item.text, newsCatalog)}</span>
+        </div>
+        {children.length > 0 && (
+          <ul className="ml-5 mt-0.5 space-y-1 list-none">
+            {children.map((c, ci) => (
+              <li key={`${keyBase}-${idx}-c-${ci}`} className="flex items-start gap-2">
+                <span className="text-slate-400 select-none leading-snug shrink-0" aria-hidden>–</span>
+                <span className="text-[13px] text-slate-600">{inlineFmt(c.text, newsCatalog)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </li>
+    )
+    idx = next
+  }
+  return rendered
+}
+
 function parseMarkdownBlocks(text, newsCatalog) {
   const lines = text.split('\n')
   const elements = []
@@ -39,14 +73,15 @@ function parseMarkdownBlocks(text, newsCatalog) {
 
   const flushList = () => {
     if (listBuf.length) {
+      const minIndent = Math.min(...listBuf.map((item) => item.indent))
+      const normalizedItems = listBuf.map((item) => ({
+        text: item.text,
+        depth: item.indent - minIndent >= 2 ? 1 : 0,
+      }))
+      const keyBase = `ul-${elements.length}`
       elements.push(
-        <ul key={`ul-${elements.length}`} className="space-y-1.5 mb-2">
-          {listBuf.map((l, i) => (
-            <li key={i} className="flex items-start gap-2">
-              <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-mck-deep shrink-0" />
-              <span>{inlineFmt(l, newsCatalog)}</span>
-            </li>
-          ))}
+        <ul key={keyBase} className="space-y-1.5 mb-2 list-none">
+          {renderNestedList(normalizedItems, newsCatalog, keyBase)}
         </ul>
       )
       listBuf = []
@@ -55,13 +90,15 @@ function parseMarkdownBlocks(text, newsCatalog) {
 
   for (const line of lines) {
     const trimmed = line.trim()
+    const indent = line.search(/\S/)
+    const normalizedIndent = indent < 0 ? 0 : indent
     if (trimmed.startsWith('### ')) {
       flushList()
       elements.push(<h4 key={elements.length} className="font-semibold text-slate-800 mt-3 mb-1.5 text-xs">{inlineFmt(trimmed.slice(4), newsCatalog)}</h4>)
     } else if (trimmed.startsWith('## ')) {
       flushList()
     } else if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
-      listBuf.push(trimmed.slice(2))
+      listBuf.push({ text: trimmed.slice(2), indent: normalizedIndent })
     } else if (trimmed === '') {
       flushList()
     } else {
