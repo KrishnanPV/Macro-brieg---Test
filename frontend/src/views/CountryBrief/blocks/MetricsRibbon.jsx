@@ -55,16 +55,14 @@ function ribbonStyles(kpiId, trend, label) {
   const pol = polarity(kpiId, label)
   const Icon = trendIcon(trend)
 
+  const valueClass = 'text-slate-800'
+
   if (pol === 'neutral' || trend === 'flat') {
-    return { Icon: trend === 'flat' ? Minus : Icon, valueClass: 'text-slate-700', iconClass: 'text-slate-400' }
+    return { Icon: trend === 'flat' ? Minus : Icon, valueClass, iconClass: 'text-slate-400' }
   }
 
-  const good = pol === 'lower_is_better' ? trend === 'down' : trend === 'up'
-
-  if (good) {
-    return { Icon, valueClass: 'text-emerald-600', iconClass: 'text-emerald-500' }
-  }
-  return { Icon, valueClass: 'text-red-600', iconClass: 'text-red-500' }
+  const iconClass = trend === 'up' ? 'text-emerald-500' : 'text-red-500'
+  return { Icon, valueClass, iconClass }
 }
 
 function formatChangePct(cp) {
