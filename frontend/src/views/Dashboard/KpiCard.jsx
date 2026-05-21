@@ -205,7 +205,8 @@ export default function KpiCard({
   result, countries, autoTriggerInsight = 0, insightCache = {}, onInsightCached, compact = false,
   onChartFrequencyChange, chartFrequencyLoading = false,
 }) {
-  const { kpi_id, kpi_name, series, errors, frequency, last_actual_year } = result
+  const { kpi_id, kpi_name, series, errors, frequency, native_frequency, last_actual_year } = result
+  const supportsBothFrequencies = native_frequency === 'Q'
   const [vizMode, setVizMode] = useState('area')
 
   const isMultiCountry = countries.length > 1
@@ -439,7 +440,7 @@ export default function KpiCard({
 
         <div className="flex flex-wrap items-center justify-between gap-2 mt-3 pt-3 border-t border-slate-100/80">
           <div className="flex flex-wrap items-center gap-2">
-            {onChartFrequencyChange && (
+            {onChartFrequencyChange && supportsBothFrequencies && (
               <ChartFrequencyToggle
                 value={frequency}
                 loading={chartFrequencyLoading}

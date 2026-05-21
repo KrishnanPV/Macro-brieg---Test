@@ -307,13 +307,12 @@ export default function InlineChartBlock({
 
   const kpiResult = kpiDataCache.find(r => String(r.kpi_id) === lookupId)
   const defaults = KPI_CHART_DEFAULTS[String(kpiId)] || DEFAULT_CHART
-  const hasDualFreq = !!(kpiResult?.series_annual?.length)
   const hasQuarterlyPoints = hasRenderablePoints(kpiResult?.series)
   const hasAnnualPoints = hasRenderablePoints(kpiResult?.series_annual)
+  const hasDualFreq = hasQuarterlyPoints && hasAnnualPoints
 
   const [vizMode, setVizMode] = useState(defaults.vizMode)
   const [freq, setFreq] = useState(() => {
-    if (!hasDualFreq) return 'Q'
     if (defaults.freq === 'A' && hasAnnualPoints) return 'A'
     if (defaults.freq === 'Q' && hasQuarterlyPoints) return 'Q'
     if (hasQuarterlyPoints) return 'Q'
@@ -324,19 +323,21 @@ export default function InlineChartBlock({
   const [cagrPopupOpen, setCagrPopupOpen] = useState(false)
   const [cagrResult, setCagrResult] = useState(null)
 
-  let activeSeries = (freq === 'A' && hasDualFreq)
+  let activeSeries = freq === 'A'
     ? (kpiResult?.series_annual || [])
     : (kpiResult?.series || [])
-  if (!hasRenderablePoints(activeSeries) && hasDualFreq) {
+  let effectiveFreq = freq
+  if (!hasRenderablePoints(activeSeries)) {
     const fallbackSeries = freq === 'A'
       ? (kpiResult?.series || [])
       : (kpiResult?.series_annual || [])
     if (hasRenderablePoints(fallbackSeries)) {
       activeSeries = fallbackSeries
+      effectiveFreq = freq === 'A' ? 'Q' : 'A'
     }
   }
 
-  const isQuarterly = freq === 'Q' && kpiResult?.frequency === 'Q'
+  const isQuarterly = effectiveFreq === 'Q' && kpiResult?.frequency === 'Q'
 
   const oilOverlay = isOilGdpSplit ? kpiResult?.oil_price_overlay : null
   const hasOilOverlay = !!(oilOverlay?.points?.length)
@@ -620,7 +621,7 @@ export default function InlineChartBlock({
             </div>
           )}
           <ResponsiveContainer width="100%" height={chartHeight}>
-            <ComposedChart key={`${activeVizMode}-${freq}`} data={chartRows}
+            <ComposedChart key={`${activeVizMode}-${effectiveFreq}`} data={chartRows}
               margin={{ top: activeVizMode === 'line' ? 18 : 5, right: hasOilOverlay ? 36 : 24, bottom: 0, left: 0 }}>
               {activeVizMode === 'line' && (
                 <defs>
