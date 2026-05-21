@@ -26,10 +26,12 @@ def _kpi_specs() -> list[KpiSpec]:
                 ["GDP real, annual growth"],
                 "EAP_TIMERANGE_Q",
                 "Aggregate real GDP growth (y/y)."),
-        KpiSpec("11", "GDP - Real (Sector Split)", "oxford", "Q",
+        KpiSpec("11", "GDP by Sector", "oxford", "Q",
                 ["GDP, agriculture", "GDP, industry", "GDP, manufacturing", "GDP, services"],
                 "EAP_TIMERANGE_Q",
-                "Real GDP by 4 sectors: agriculture, industry, manufacturing, services."),
+                "GDP by 4 sectors (nominal LCU): agriculture, industry, "
+                "manufacturing, services. Oxford EAP does not publish a real "
+                "sector split, so only nominal series are available."),
         KpiSpec("2", "GDP - Real (Oil vs Non-Oil)", "oxford", "Q",
                 ["GDP, oil, real, LCU", "GDP, non-oil, real, LCU"],
                 "EAP_TIMERANGE_Q",
@@ -335,7 +337,7 @@ INSIGHT_LENSES: dict[str, InsightLens] = {
         ],
     ),
     "11": InsightLens(
-        headline="Real GDP by Sector",
+        headline="GDP by Sector",
         notability_cues=[
             "Sector-share shifts >3pp between periods signal structural change — use pre-computed composition data.",
             "Manufacturing growing faster than overall industry signals higher-value-added industrialization.",
@@ -343,16 +345,16 @@ INSIGHT_LENSES: dict[str, InsightLens] = {
         context_hooks=[
             "National economic diversification programs (e.g. Saudi Vision 2030, UAE Economic Vision 2030, Qatar National Vision 2030).",
             "Sector-specific industrial policy, privatization drives, or mega-project spending.",
-            "Global commodity cycles and their pass-through to real sector output.",
+            "Commodity price cycles and their pass-through to nominal sector composition.",
         ],
         forbidden_claims=[
             "Do not compare absolute LCU values across countries with different currencies.",
-            "Do not confuse this real (volume) series with the nominal sector split (KPI 1) — do not infer price effects.",
+            "Do not infer real output growth from this series — Oxford EAP only publishes nominal sector splits, so share changes can reflect price effects rather than volume.",
         ],
-        units_note="Real LCU (constant prices). Synthesize sectors — do not bullet each one separately.",
+        units_note="Nominal LCU (current prices). Synthesize sectors — do not bullet each one separately.",
         narrative_guidance=[
             "Lead with which sectors are gaining share and connect to named policy programmes.",
-            "This is the REAL sector split — focus on output mix. Differentiate from KPI 1 (nominal).",
+            "Caveat that this is a nominal series — share shifts may reflect price effects, not real output reallocation.",
             "Synthesize sectors into a composition story. Do not bullet each sector separately.",
         ],
     ),

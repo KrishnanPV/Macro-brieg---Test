@@ -45,6 +45,34 @@ def _ndjson(obj: dict[str, Any]) -> str:
     return json.dumps(obj, default=str) + "\n"
 
 
+def _analysis_ready_results(results_raw: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
+    """Return KPI payloads with a usable `series` list for analysis stages.
+
+    Country-brief analysis code consumes `series`; however, some economies only
+    publish annual observations for KPI families that are natively quarterly.
+    In those cases `fetch_kpi_data(..., dual_fetch=True)` leaves `series` empty
+    and places usable rows in `series_annual`.
+    """
+    normalized: list[dict[str, Any]] = []
+    annual_fallback_kpis: list[str] = []
+    for raw in results_raw:
+        item = dict(raw)
+        series = item.get("series")
+        annual_series = item.get("series_annual")
+        has_native = isinstance(series, list) and bool(series)
+        has_annual = isinstance(annual_series, list) and bool(annual_series)
+
+        if not has_native and has_annual:
+            item["series"] = list(annual_series)
+            item["frequency"] = "A"
+            annual_fallback_kpis.append(str(item.get("kpi_id", "")).strip())
+
+        if isinstance(item.get("series"), list) and item.get("series"):
+            normalized.append(item)
+
+    return normalized, annual_fallback_kpis
+
+
 def get_fdi_cache_entry(cache_key: str) -> dict[str, Any] | None:
     return _fdi_benchmark_cache.get(cache_key)
 
@@ -333,8 +361,10 @@ def _build_exhibit_kpi_ids(*, notable_kpi_ids: list[str], is_gcc: bool) -> list[
     ids = [str(k).strip() for k in notable_kpi_ids if str(k).strip()]
     if is_gcc and "2" in ids and "2-oil" not in ids:
         ids.append("2-oil")
-    # KPI 11 (real sector split) and KPI 1 (nominal sector split) are combined
-    # into a single chart with a Real/Nominal toggle on the frontend.
+    # KPI 11 ("GDP by Sector") and KPI 1 ("GDP - Nominal (Split by industry)")
+    # query the same nominal Oxford indicators, so a single chart suffices.
+    # Oxford EAP does not publish a real sector split, so there is no real-vs-
+    # nominal toggle on the frontend.
     if "11" in ids and "1" in ids:
         ids.remove("1")
     return ids
@@ -343,8 +373,11 @@ def _build_exhibit_kpi_ids(*, notable_kpi_ids: list[str], is_gcc: bool) -> list[
 def _merge_sector_gdp_charts(
     blocks: list[dict[str, Any]], ids_with_data: set[str],
 ) -> list[dict[str, Any]]:
-    """Remove separate KPI 1 chart when KPI 11 is present — the frontend
-    renders a single combined chart with a Real/Nominal toggle."""
+    """Remove separate KPI 1 chart when KPI 11 is present.
+
+    Both KPIs query the same nominal Oxford indicators, so a single chart
+    suffices. Oxford EAP does not publish a real sector split.
+    """
     if "11" not in ids_with_data or "1" not in ids_with_data:
         return blocks
     for block in blocks:
@@ -558,7 +591,13 @@ def run_pipeline(
     results_raw = [r.model_dump() for r in fetch_resp.results]
     yield _ndjson({"type": "kpi_data", "content": results_raw})
 
-    valid_results = [r for r in results_raw if r.get("series")]
+    valid_results, annual_fallback_kpis = _analysis_ready_results(results_raw)
+    if annual_fallback_kpis:
+        log.info(
+            "Country brief analysis using annual fallback series for %s (country=%s)",
+            ", ".join(annual_fallback_kpis),
+            req.country,
+        )
 
     fdi_benchmark_payload: dict[str, Any] | None = None
     if "4" in available_ids:

@@ -44,7 +44,7 @@ def _build_gdp_l2_addendum(
     if "2" in selected:
         driver_lines.append("- If KPI 2 is present, decompose growth into oil and non-oil real-volume contributions.")
     if "11" in selected:
-        driver_lines.append("- If KPI 11 is present, identify which real sectors are driving the aggregate path.")
+        driver_lines.append("- If KPI 11 is present, identify which sectors are gaining or losing share of nominal GDP. Caveat that this is a nominal series — share shifts can reflect price effects, not real output changes.")
     if "10" in selected and _payload_has_series(dict(kpi_results.get("10") or {})):
         driver_lines.append(
             "- If KPI 10 data is present, use expenditure decomposition (private consumption, fixed investment, exports, imports) to explain growth peaks/troughs."
