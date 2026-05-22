@@ -40,18 +40,19 @@ Weight your analysis toward this focus. Dedicate more depth and narrative space 
 _SECTION_SPECS: dict[str, dict] = {
     "default": {
         "titles": [
-            "Economic Structure & Growth",
+            "Growth & Economic Structure",
             "Inflation",
-            "External Position & Investment",
+            "External Position & Trade",
             "Domestic Demand & Public Finances",
-            "Labour Market & Demographics",
+            "Debt, Labour Market & Demographics",
         ],
         "kpi_map": {
-            "Economic Structure & Growth":       ["2", "3", "11", "1"],
-            "Inflation":                         ["7"],
-            "External Position & Investment":    ["4"],
-            "Domestic Demand & Public Finances":  ["6", "8"],
-            "Labour Market & Demographics":      ["5", "9"],
+            # Flat chart order: 2 → 12 → 11 → 7 → 13 → 4 → 6 → 14 → 8 → 5 → 9
+            "Growth & Economic Structure":         ["2", "12", "11", "1"],
+            "Inflation":                           ["7"],
+            "External Position & Trade":           ["13", "4"],
+            "Domestic Demand & Public Finances":   ["6", "14"],
+            "Debt, Labour Market & Demographics":  ["8", "5", "9"],
         },
     },
     "legacy": {

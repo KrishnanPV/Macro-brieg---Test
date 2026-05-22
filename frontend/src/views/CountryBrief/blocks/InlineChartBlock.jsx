@@ -75,12 +75,26 @@ function CustomTooltip({ active, payload, label, dateFormatter }) {
 const KPI_CHART_DEFAULTS = {
   '3':  { vizMode: 'line', freq: 'Q' },
   '2':  { vizMode: 'bar',  freq: 'A' },
-  '2-oil': { vizMode: 'line', freq: 'A' },
   '11': { vizMode: 'bar',  freq: 'A' },
   '9':  { vizMode: 'line', freq: 'A' },
   '5':  { vizMode: 'line', freq: 'Q' },
+  '12': { vizMode: 'line', freq: 'Q' },
+  '13': { vizMode: 'bar',  freq: 'A' },
+  '14': { vizMode: 'bar',  freq: 'A' },
 }
 const DEFAULT_CHART = { vizMode: 'line', freq: 'Q' }
+
+// Bar-mode KPIs that should render side-by-side bars instead of stacked.
+const SIDE_BY_SIDE_BAR_KPIS = new Set(['14'])
+
+// KPI 13 (Trade) bars split into two stacks per period: oil/non-oil exports
+// stack together, oil/non-oil imports stack together, side-by-side per year.
+function tradeStackIdFor(seriesKey) {
+  const k = String(seriesKey).toLowerCase()
+  if (k.includes('export')) return 'trade_exports'
+  if (k.includes('import')) return 'trade_imports'
+  return 'a'
+}
 
 const NET_FDI_KEY = '__net_fdi__'
 const NET_FDI_COLOR = '#16a34a'
@@ -292,10 +306,11 @@ export default function InlineChartBlock({
     )
   )
 
-  const isOilGdpSplit = String(kpiId) === '2-oil'
-  const lookupId = isOilGdpSplit ? '2' : String(kpiId)
+  const lookupId = String(kpiId)
   const isFdiKpi = lookupId === '4'
   const isInflationKpi = lookupId === '7'
+  const isGrowthSplitKpi = lookupId === '12'
+  const isSideBySideBars = SIDE_BY_SIDE_BAR_KPIS.has(lookupId)
 
   const hasFdiBenchmark =
     Array.isArray(fdiBenchmark?.countries) &&
@@ -339,7 +354,9 @@ export default function InlineChartBlock({
 
   const isQuarterly = effectiveFreq === 'Q' && kpiResult?.frequency === 'Q'
 
-  const oilOverlay = isOilGdpSplit ? kpiResult?.oil_price_overlay : null
+  // Oil price overlay is attached by the backend to KPI 13 (Trade). Reading
+  // it unconditionally is safe because no other KPI carries the payload.
+  const oilOverlay = kpiResult?.oil_price_overlay
   const hasOilOverlay = !!(oilOverlay?.points?.length)
 
   const { seriesKeys, rows, kpiName, unitLabel } = useMemo(() => {
@@ -347,20 +364,31 @@ export default function InlineChartBlock({
       return { seriesKeys: [], rows: [], kpiName: '', unitLabel: '' }
     }
     let filtered = activeSeries
-    if (isOilGdpSplit) {
-      filtered = activeSeries.filter(s =>
-        INWARD_RE.test(s.indicator) || /\boil\b/i.test(s.indicator) && !/non.oil/i.test(s.indicator)
-      )
-      if (!filtered.length) {
-        filtered = activeSeries.filter(s => !/non.oil/i.test(s.indicator))
-      }
-      if (!filtered.length) filtered = activeSeries.slice(0, 1)
+    let series = filtered
+    let unit = filtered[0]?.unit || kpiResult.unit || ''
+    if (isGrowthSplitKpi) {
+      // KPI 12 mixes a native YoY% growth series (total) with two real-LCU
+      // level series (oil / non-oil). Convert the level series to YoY% so all
+      // three lines share a comparable scale on the same Y axis.
+      series = filtered.map((s) => {
+        const isAlreadyPercent = /growth|%/i.test(s.indicator)
+        if (isAlreadyPercent) return s
+        const lag = effectiveFreq === 'Q' ? 4 : 1
+        const points = s.points || []
+        const yoyPoints = points.map((p, i) => {
+          const prior = points[i - lag]
+          if (!prior || prior.value == null || prior.value === 0 || p.value == null) {
+            return { date: p.date, value: null }
+          }
+          return { date: p.date, value: ((p.value - prior.value) / Math.abs(prior.value)) * 100 }
+        }).filter((p) => p.value != null)
+        return { ...s, indicator: shortenIndicator(s.indicator), points: yoyPoints, unit: '%' }
+      })
+      unit = '%'
     }
-    const { seriesKeys: sk, rows: r } = buildRowsFromSeries(filtered, kpiResult.unit)
-    const unit = filtered[0]?.unit || kpiResult.unit || ''
-    const name = isOilGdpSplit ? 'GDP - Real (Oil GDP)' : kpiResult.kpi_name
-    return { seriesKeys: sk, rows: r, kpiName: name, unitLabel: unit }
-  }, [kpiResult, activeSeries, isOilGdpSplit])
+    const { seriesKeys: sk, rows: r } = buildRowsFromSeries(series, unit)
+    return { seriesKeys: sk, rows: r, kpiName: kpiResult.kpi_name, unitLabel: unit }
+  }, [kpiResult, activeSeries, isGrowthSplitKpi, effectiveFreq])
 
   const displayUnitLabel = useMemo(() => {
     if (!unitLabel) return ''
@@ -670,13 +698,21 @@ export default function InlineChartBlock({
                       <Line type="linear" dataKey={NET_FDI_KEY} yAxisId="left" stroke={NET_FDI_COLOR}
                         strokeWidth={2} dot={false} name="Net FDI" />
                     </>
-                  : seriesKeys.map((sk, skIdx) => (
-                      <Bar key={sk.key} dataKey={sk.key} fill={sk.color} stackId="a" yAxisId="left"
-                        label={skIdx === 0 ? (props) => {
-                          if (!keyPointIndices.has(props.index)) return null
-                          return <text x={props.x + props.width / 2} y={props.y + props.height / 2} textAnchor="middle" dominantBaseline="middle" fontSize={8} fontWeight={600} fill="#ffffff">{formatAbbrevNumber(props.value)}</text>
-                        } : false} />
-                    ))
+                  : seriesKeys.map((sk, skIdx) => {
+                      let stackProps
+                      if (isSideBySideBars) stackProps = {}
+                      else if (lookupId === '13') stackProps = { stackId: tradeStackIdFor(sk.key) }
+                      else stackProps = { stackId: 'a' }
+                      return (
+                        <Bar key={sk.key} dataKey={sk.key} fill={sk.color}
+                          {...stackProps}
+                          yAxisId="left"
+                          label={skIdx === 0 ? (props) => {
+                            if (!keyPointIndices.has(props.index)) return null
+                            return <text x={props.x + props.width / 2} y={props.y + props.height / 2} textAnchor="middle" dominantBaseline="middle" fontSize={8} fontWeight={600} fill="#ffffff">{formatAbbrevNumber(props.value)}</text>
+                          } : false} />
+                      )
+                    })
                 )
                 : <>
                     {seriesKeys.map((sk, skIdx) => (

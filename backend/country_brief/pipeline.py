@@ -18,7 +18,7 @@ from datetime import datetime
 from typing import Any, Iterator
 
 from backend.models.kpi_registry import SPECS
-from backend.models.schemas import CountryBriefGenerateRequest
+from backend.models.schemas import CountryBriefGenerateRequest, IndicatorSeries, KpiResult, SeriesPoint
 from backend.services.derived_facts import compute_derived_facts
 from backend.services.knoema_client import fetch_kpi_data, fetch_oil_price_data
 from backend.country_brief.kpi_triage import triage_kpis
@@ -35,6 +35,7 @@ log = logging.getLogger(__name__)
 # GCC economies — matches frontend region grouping (CountryBrief / Dashboard).
 _GCC_CODES = frozenset({"SAU", "ARE", "QAT", "KWT", "BHR", "OMN"})
 _OIL_NON_OIL_KPI = "2"
+_TRADE_KPI = "13"
 
 # In-memory cache so the frontend can re-slice FDI benchmarks by year
 # without re-fetching from Oxford Economics. Keyed by a random UUID.
@@ -43,6 +44,75 @@ _fdi_benchmark_cache: dict[str, dict[str, Any]] = {}
 
 def _ndjson(obj: dict[str, Any]) -> str:
     return json.dumps(obj, default=str) + "\n"
+
+
+def _split_trade_oil_non_oil(series_list: list[IndicatorSeries]) -> list[IndicatorSeries] | None:
+    """Convert raw KPI 13 series into [Oil exp, Non-oil exp, Oil imp, Non-oil imp].
+
+    Inputs are the four indicators declared in the KPI 13 spec:
+      - "Exports, goods & services, nominal, LCU"
+      - "Oil, exports, annualised"
+      - "Imports, goods & services, nominal, LCU"
+      - "Oil, imports, annualised"
+
+    Non-oil is derived per date as ``total − oil``. Returns ``None`` if either
+    side is missing (caller falls back to the raw fetched series).
+    """
+    if not series_list:
+        return None
+
+    by_indicator: dict[str, IndicatorSeries] = {s.indicator: s for s in series_list}
+    total_exp = by_indicator.get("Exports, goods & services, nominal, LCU")
+    oil_exp = by_indicator.get("Oil, exports, annualised")
+    total_imp = by_indicator.get("Imports, goods & services, nominal, LCU")
+    oil_imp = by_indicator.get("Oil, imports, annualised")
+    if not (total_exp and oil_exp and total_imp and oil_imp):
+        return None
+
+    def _derive(total: IndicatorSeries, oil: IndicatorSeries,
+                oil_label: str, non_oil_label: str) -> tuple[IndicatorSeries, IndicatorSeries]:
+        oil_by_date = {p.date: p.value for p in oil.points if p.value is not None}
+        oil_points: list[SeriesPoint] = []
+        non_oil_points: list[SeriesPoint] = []
+        for p in total.points:
+            if p.value is None:
+                continue
+            oil_val = oil_by_date.get(p.date)
+            if oil_val is None:
+                continue
+            oil_points.append(SeriesPoint(date=p.date, value=float(oil_val)))
+            non_oil_points.append(SeriesPoint(date=p.date, value=float(p.value) - float(oil_val)))
+        unit = total.unit or oil.unit
+        scale = total.scale
+        country = total.country
+        return (
+            IndicatorSeries(country=country, indicator=oil_label,
+                            points=oil_points, unit=unit, scale=scale),
+            IndicatorSeries(country=country, indicator=non_oil_label,
+                            points=non_oil_points, unit=unit, scale=scale),
+        )
+
+    oil_exports, non_oil_exports = _derive(total_exp, oil_exp, "Oil exports", "Non-oil exports")
+    oil_imports, non_oil_imports = _derive(total_imp, oil_imp, "Oil imports", "Non-oil imports")
+
+    # If both sides produced no overlapping dates, treat as unusable.
+    if not (oil_exports.points or non_oil_exports.points) and not (oil_imports.points or non_oil_imports.points):
+        return None
+    return [oil_exports, non_oil_exports, oil_imports, non_oil_imports]
+
+
+def _apply_trade_oil_split(fetch_resp: Any) -> None:
+    """Mutate KPI 13 entries in ``fetch_resp.results`` to carry the oil split."""
+    for r in fetch_resp.results:
+        if r.kpi_id != _TRADE_KPI:
+            continue
+        derived_q = _split_trade_oil_non_oil(r.series)
+        if derived_q is not None:
+            r.series = derived_q
+        if r.series_annual:
+            derived_a = _split_trade_oil_non_oil(r.series_annual)
+            if derived_a is not None:
+                r.series_annual = derived_a
 
 
 def _analysis_ready_results(results_raw: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
@@ -160,12 +230,14 @@ def _ensure_chart_blocks(
 
 
 _PROFILE_SECTION_ORDER: dict[str, dict[str, int]] = {
+    # Default flat sequence:
+    #   2  → 12 → 11 → 7  → 13 → 4  → 6  → 14 → 8  → 5  → 9
     "default": {
-        "2": 1, "2-oil": 1, "3": 1, "11": 1, "1": 1,
+        "2": 1, "12": 1, "11": 1, "1": 1,
         "7": 2,
-        "4": 3,
-        "6": 4, "8": 4,
-        "5": 5, "9": 5,
+        "13": 3, "4": 3,
+        "6": 4, "14": 4,
+        "8": 5, "5": 5, "9": 5,
     },
     "legacy": {
         "3": 1, "2": 1, "11": 1, "1": 1,
@@ -179,11 +251,11 @@ _PROFILE_SECTION_ORDER: dict[str, dict[str, int]] = {
 
 _PROFILE_DISPLAY_ORDER: dict[str, dict[str, int]] = {
     "default": {
-        "2": 0, "2-oil": 1, "3": 2, "11": 3, "1": 4,
+        "2": 0, "12": 1, "11": 2, "1": 3,
         "7": 0,
-        "4": 0,
-        "6": 0, "8": 1,
-        "5": 0, "9": 1,
+        "13": 0, "4": 1,
+        "6": 0, "14": 1,
+        "8": 0, "5": 1, "9": 2,
     },
     "legacy": {
         "3": 0, "2": 1, "2-oil": 2, "11": 3, "1": 4,
@@ -196,11 +268,11 @@ _PROFILE_DISPLAY_ORDER: dict[str, dict[str, int]] = {
 
 _PROFILE_SECTION_KPI_REQUIREMENTS: dict[str, list[tuple[str, set[str]]]] = {
     "default": [
-        ("Economic Structure & Growth", {"1", "2", "3", "11"}),
+        ("Growth & Economic Structure", {"1", "2", "11", "12"}),
         ("Inflation", {"7"}),
-        ("External Position & Investment", {"4"}),
-        ("Domestic Demand & Public Finances", {"6", "8"}),
-        ("Labour Market & Demographics", {"5", "9"}),
+        ("External Position & Trade", {"4", "13"}),
+        ("Domestic Demand & Public Finances", {"6", "14"}),
+        ("Debt, Labour Market & Demographics", {"5", "8", "9"}),
     ],
     "legacy": [
         ("Economic Performance & Growth", {"1", "2", "3", "11"}),
@@ -357,14 +429,14 @@ def _compute_exhibit_map(
 
 
 def _build_exhibit_kpi_ids(*, notable_kpi_ids: list[str], is_gcc: bool) -> list[str]:
-    """Build KPI IDs used for exhibit numbering, including GCC oil split when needed."""
+    """Build KPI IDs used for exhibit numbering.
+
+    KPI 11 and KPI 1 query the same nominal Oxford indicators, so a single
+    chart suffices. ``is_gcc`` is currently unused but kept so future GCC-only
+    exhibits can plug in without changing call sites.
+    """
+    del is_gcc  # reserved for future GCC-only exhibits
     ids = [str(k).strip() for k in notable_kpi_ids if str(k).strip()]
-    if is_gcc and "2" in ids and "2-oil" not in ids:
-        ids.append("2-oil")
-    # KPI 11 ("GDP by Sector") and KPI 1 ("GDP - Nominal (Split by industry)")
-    # query the same nominal Oxford indicators, so a single chart suffices.
-    # Oxford EAP does not publish a real sector split, so there is no real-vs-
-    # nominal toggle on the frontend.
     if "11" in ids and "1" in ids:
         ids.remove("1")
     return ids
@@ -428,8 +500,9 @@ def _check_exhibit_label_sequence(blocks: list[dict[str, Any]]) -> list[str]:
 def _is_demographics_section_title(title: str) -> bool:
     """Match demographics section even if the model shortens the heading.
 
-    Must match across all chart_order_profile variants — both "Demographics &
-    Structural Factors" (legacy) and "Labour Market & Demographics" (default).
+    Must match across all chart_order_profile variants — "Debt, Labour Market
+    & Demographics" (default), "Labour Market & Demographics" (older default),
+    and "Demographics & Structural Factors" (legacy).
     """
     t = (title or "").lower()
     return "demographic" in t
@@ -461,7 +534,7 @@ def _ensure_kpi9_demographics_chart(
                 break
         blocks.insert(insert_at, {
             "type": "section",
-            "title": "Demographics & Structural Factors",
+            "title": "Debt, Labour Market & Demographics",
             "children": [],
         })
         demo_idx = insert_at
@@ -484,28 +557,6 @@ def _ensure_kpi9_demographics_chart(
         children.append({"type": "chart_ref", "kpi_id": "9"})
     demo["children"] = children
     return blocks
-
-
-def _inject_oil_gdp_split(blocks: list[dict[str, Any]], is_gcc: bool, exhibit_map: dict[str, str]) -> None:
-    """For GCC countries, insert a '2-oil' chart_ref after KPI 2 in the growth section."""
-    if not is_gcc:
-        return
-    for block in blocks:
-        if block.get("type") != "section":
-            continue
-        children = block.get("children") or []
-        insert_after = None
-        for i, child in enumerate(children):
-            if child.get("type") == "chart_ref" and str(child.get("kpi_id")) == "2":
-                insert_after = i
-                break
-        if insert_after is not None:
-            oil_chart = {"type": "chart_ref", "kpi_id": "2-oil"}
-            oil_label = exhibit_map.get("2-oil")
-            if oil_label:
-                oil_chart["exhibit_label"] = oil_label
-            children.insert(insert_after + 1, oil_chart)
-            break
 
 
 def _reorder_section_charts(
@@ -568,8 +619,14 @@ def run_pipeline(
         timerange_a=timerange,
         dual_fetch=True,
     )
-    # Oil price overlay for KPI 2 (Oil vs Non-Oil GDP)
-    if _OIL_NON_OIL_KPI in available_ids:
+    # Replace KPI 13's raw totals + oil legs with the derived oil/non-oil split
+    # before any downstream consumer (analysis, frontend, prompts) sees them.
+    if _TRADE_KPI in available_ids:
+        _apply_trade_oil_split(fetch_resp)
+    # Oil price overlay for KPI 13 (Trade — Exports & Imports).
+    # Only fetched when the Trade KPI is in scope; the overlay never appears
+    # on any other chart.
+    if _TRADE_KPI in available_ids:
         yield _ndjson({"type": "status", "content": "Fetching Brent oil price overlay..."})
         try:
             oil_overlay = fetch_oil_price_data(
@@ -579,10 +636,10 @@ def run_pipeline(
             )
             if oil_overlay:
                 for r in fetch_resp.results:
-                    if r.kpi_id == _OIL_NON_OIL_KPI:
+                    if r.kpi_id == _TRADE_KPI:
                         r.oil_price_overlay = oil_overlay
                         break
-                log.info("Oil price overlay attached for %s", req.country)
+                log.info("Oil price overlay attached to Trade chart for %s", req.country)
             else:
                 log.info("Oil price overlay unavailable for %s — skipping.", req.country)
         except Exception as exc:
@@ -796,7 +853,6 @@ def run_pipeline(
     fallback_chart_ids = [kid for kid in available_ids if kid in ids_with_data]
     blocks = _ensure_chart_blocks(blocks, preferred_chart_ids=fallback_chart_ids)
     _assign_exhibit_labels(blocks, exhibit_map)
-    _inject_oil_gdp_split(blocks, is_gcc, exhibit_map)
     blocks = _reorder_section_charts(blocks, profile=profile)
     exhibit_issues = _check_exhibit_label_sequence(blocks)
     if exhibit_issues:

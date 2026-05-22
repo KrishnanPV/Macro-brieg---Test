@@ -64,6 +64,27 @@ def _kpi_specs() -> list[KpiSpec]:
         KpiSpec("10", "GDP contribution from GDP categories (expenditure / NEA)", "imf", "A",
                 [], "EAP_TIMERANGE_A",
                 "IMF NEA — not available via Oxford EAP."),
+        KpiSpec("12", "GDP Growth Split (Total / Oil / Non-Oil)", "oxford", "Q",
+                ["GDP real, annual growth",
+                 "GDP, oil, real, LCU",
+                 "GDP, non-oil, real, LCU"],
+                "EAP_TIMERANGE_Q",
+                "Combined YoY growth lines: total real GDP growth (native) plus oil "
+                "and non-oil growth computed from real LCU levels."),
+        KpiSpec("13", "Trade — Oil vs Non-Oil Exports & Imports", "oxford", "A",
+                ["Exports, goods & services, nominal, LCU",
+                 "Oil, exports, annualised",
+                 "Imports, goods & services, nominal, LCU",
+                 "Oil, imports, annualised"],
+                "EAP_TIMERANGE_A",
+                "Nominal LCU exports and imports of goods & services, split into "
+                "oil and non-oil legs. Non-oil is derived as total minus oil; "
+                "rendered as two stacked bars per year with a Brent overlay."),
+        KpiSpec("14", "Government Revenue & Expenditure", "oxford", "A",
+                ["Government revenue, total",
+                 "Government expenditure, total"],
+                "EAP_TIMERANGE_A",
+                "Absolute LCU. Annual."),
     ]
 
 
@@ -334,6 +355,79 @@ INSIGHT_LENSES: dict[str, InsightLens] = {
         ],
         narrative_guidance=[
             "If expenditure-side data is unavailable, do not attempt to reconstruct it from other KPIs.",
+        ],
+    ),
+    "12": InsightLens(
+        headline="GDP Growth Split (Total / Oil / Non-Oil)",
+        notability_cues=[
+            "Divergence between oil and non-oil growth >2pp signals an OPEC+ or diversification story.",
+            "Sign-flips on any of the three lines (total, oil, non-oil) are inflection points worth leading with.",
+            "Sustained non-oil > total > oil ordering is the classic diversification pattern.",
+        ],
+        context_hooks=[
+            "OPEC+ production decisions, voluntary cuts, and quota compliance affecting oil GDP volume.",
+            "Diversification programmes (Vision 2030, Economic Vision 2030) lifting non-oil activity.",
+            "Global demand cycles transmitting to total growth via the trade channel.",
+        ],
+        forbidden_claims=[
+            "Do not attribute oil growth to oil prices — this is a volume series.",
+            "Do not infer composition share from growth rates alone.",
+        ],
+        units_note="Year-on-year %. Oil and non-oil lines are computed from real LCU levels.",
+        narrative_guidance=[
+            "Lead with the relationship between total, oil, and non-oil growth lines.",
+            "Quantify the oil/non-oil gap and connect to specific OPEC+ or policy events.",
+            "Treat persistent non-oil outperformance as a structural diversification signal, not a single-quarter event.",
+        ],
+    ),
+    "13": InsightLens(
+        headline="Trade — Oil vs Non-Oil Exports & Imports (with Oil Price Overlay)",
+        notability_cues=[
+            "Net trade flips (exports crossing imports) and large widenings of the trade balance.",
+            "Shifts in the oil share of exports — rising non-oil exports are a diversification signal.",
+            "Co-movement between the oil-price overlay and the oil-export leg.",
+            "Sharp import compression often signals consumption or investment weakness.",
+        ],
+        context_hooks=[
+            "Tariff changes, trade agreements, and free-zone activity affecting goods flows.",
+            "Oil-price cycles transmitting to commodity-exporter oil-export receipts (visible against the overlay).",
+            "Currency moves changing the LCU value of foreign-currency trade flows.",
+            "Diversification programmes lifting the non-oil export base.",
+        ],
+        forbidden_claims=[
+            "Do not claim oil prices drive non-oil exports without supporting evidence.",
+            "Do not infer current-account balance from goods & services trade alone.",
+            "Do not infer real volume growth from this chart — series are nominal.",
+        ],
+        units_note="Nominal LCU. Each year shows two stacked bars (exports / imports); each bar splits into oil (bottom) and non-oil (top). Non-oil is derived as total − oil. Oil-price line is on a secondary axis and is informational, not additive.",
+        narrative_guidance=[
+            "Lead with the oil vs non-oil composition of exports and how it is shifting over time.",
+            "Frame the import side similarly when oil-import share is material (net oil importers).",
+            "For oil exporters, explicitly relate oil-export swings to the oil-price line on the right axis.",
+            "Caveat that series are nominal LCU — share shifts can reflect price as well as volume.",
+        ],
+    ),
+    "14": InsightLens(
+        headline="Government Revenue & Expenditure",
+        notability_cues=[
+            "Persistent expenditure > revenue (deficit) or the reverse (surplus), and the trend direction.",
+            "Sharp revenue jumps in oil-exporting economies often track hydrocarbon receipts.",
+            "Expenditure spikes around mega-project programmes or counter-cyclical support packages.",
+        ],
+        context_hooks=[
+            "Subsidy reforms, fuel/electricity price adjustments, and VAT/excise changes.",
+            "Budget statements, medium-term fiscal frameworks, and IMF programme conditionality.",
+            "Sovereign issuance windows (sukuk, Eurobonds) signalling deficit financing.",
+        ],
+        forbidden_claims=[
+            "Do not confuse government balance with current-account balance.",
+            "Do not infer debt-sustainability conclusions from a single-year deficit.",
+        ],
+        units_note="Absolute LCU. Annual.",
+        narrative_guidance=[
+            "Lead with the headline balance (surplus or deficit) and its direction across the window.",
+            "Decompose whether changes are revenue-driven or expenditure-driven.",
+            "Connect to specific reforms, mega-projects, or oil-price cycles where relevant.",
         ],
     ),
     "11": InsightLens(
@@ -686,5 +780,45 @@ KPI_NEWS_QUERIES: dict[str, KpiNewsQuery] = {
         signal_terms=["GDP", "gross domestic product", "sector", "industry",
                        "manufacturing", "services", "agriculture", "output",
                        "value added", "economic activity", "production"],
+    ),
+    "12": KpiNewsQuery(
+        query_template=(
+            '(GDP OR "non-oil" OR "oil GDP" OR "oil sector" '
+            'OR "real GDP growth" OR "GDP growth" OR "economic growth" '
+            'OR "economic diversification" OR diversif* OR OPEC '
+            'OR "oil production" OR "oil revenue" OR "Vision 2030") '
+            'AND ({country})'
+        ),
+        themes="Economics,Finance,Business,Politics",
+        signal_terms=["GDP", "growth", "non-oil", "oil GDP", "diversification",
+                       "OPEC", "oil production", "economic growth"],
+    ),
+    "13": KpiNewsQuery(
+        query_template=(
+            '(trade OR exports OR imports OR "trade balance" '
+            'OR "current account" OR "balance of trade" OR "trade deficit" '
+            'OR "trade surplus" OR tariff* OR "free trade" '
+            'OR "oil exports" OR "oil price" OR "crude price" '
+            'OR "free zone" OR "special economic zone") '
+            'AND ({country})'
+        ),
+        themes="Economics,Finance,Business,Politics",
+        signal_terms=["exports", "imports", "trade balance", "tariff",
+                       "free trade", "oil exports", "oil price", "current account"],
+    ),
+    "14": KpiNewsQuery(
+        query_template=(
+            '("government revenue" OR "government expenditure" '
+            'OR "public spending" OR budget OR "fiscal balance" '
+            'OR "fiscal deficit" OR "fiscal surplus" OR "budget deficit" '
+            'OR "budget surplus" OR "tax revenue" OR "non-oil revenue" '
+            'OR "oil revenue" OR "fiscal policy" OR subsid* '
+            'OR "fiscal stimulus" OR austerity OR "public finance") '
+            'AND ({country})'
+        ),
+        themes="Economics,Finance,Politics",
+        signal_terms=["government revenue", "government expenditure", "budget",
+                       "fiscal balance", "tax revenue", "fiscal stimulus",
+                       "austerity", "public finance", "subsidy"],
     ),
 }
