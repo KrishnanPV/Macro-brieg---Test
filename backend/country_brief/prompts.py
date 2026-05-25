@@ -40,18 +40,19 @@ Weight your analysis toward this focus. Dedicate more depth and narrative space 
 _SECTION_SPECS: dict[str, dict] = {
     "default": {
         "titles": [
-            "Economic Structure & Growth",
-            "Inflation",
-            "External Position & Investment",
-            "Domestic Demand & Public Finances",
-            "Labour Market & Demographics",
+            "Growth & Economic Structure",
+            "Inflation & Consumption",
+            "External Position & Trade",
+            "Fiscal & External Debt",
+            "Labour & Demographics",
         ],
         "kpi_map": {
-            "Economic Structure & Growth":       ["2", "3", "11", "1"],
-            "Inflation":                         ["7"],
-            "External Position & Investment":    ["4"],
-            "Domestic Demand & Public Finances":  ["6", "8"],
-            "Labour Market & Demographics":      ["5", "9"],
+            # Flat chart order: 2 → 12 → 11 → 7 → 6 → 13 → 4 → 14 → 8 → 5 → 9
+            "Growth & Economic Structure": ["2", "12", "11"],
+            "Inflation & Consumption":     ["7", "6"],
+            "External Position & Trade":   ["13", "4"],
+            "Fiscal & External Debt":      ["14", "8"],
+            "Labour & Demographics":       ["5", "9"],
         },
     },
     "legacy": {
@@ -63,7 +64,7 @@ _SECTION_SPECS: dict[str, dict] = {
             "Demographics & Structural Factors",
         ],
         "kpi_map": {
-            "Economic Performance & Growth": ["3", "2", "11", "1"],
+            "Economic Performance & Growth": ["3", "2", "11"],
             "Investment & External Position": ["4", "8"],
             "Inflation & Monetary Conditions": ["7"],
             "Labour Market & Domestic Demand": ["5", "6"],

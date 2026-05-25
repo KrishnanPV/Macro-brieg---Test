@@ -75,17 +75,30 @@ function CustomTooltip({ active, payload, label, dateFormatter }) {
 const KPI_CHART_DEFAULTS = {
   '3':  { vizMode: 'line', freq: 'Q' },
   '2':  { vizMode: 'bar',  freq: 'A' },
-  '2-oil': { vizMode: 'line', freq: 'A' },
   '11': { vizMode: 'bar',  freq: 'A' },
   '9':  { vizMode: 'line', freq: 'A' },
   '5':  { vizMode: 'line', freq: 'Q' },
+  '12': { vizMode: 'line', freq: 'Q' },
+  '13': { vizMode: 'bar',  freq: 'A' },
+  '14': { vizMode: 'bar',  freq: 'A' },
 }
 const DEFAULT_CHART = { vizMode: 'line', freq: 'Q' }
+
+// Bar-mode KPIs that should render side-by-side bars instead of stacked.
+// KPI 13 (Trade) shows two side-by-side bars per year — total Exports vs total
+// Imports in LCU — with the Brent oil-price overlay on a secondary axis.
+// (Oxford EAP doesn't publish an LCU-denominated oil/non-oil trade split.)
+const SIDE_BY_SIDE_BAR_KPIS = new Set(['13', '14'])
 
 const NET_FDI_KEY = '__net_fdi__'
 const NET_FDI_COLOR = '#16a34a'
 const INWARD_RE = /inward/i
 const OUTWARD_RE = /outward/i
+
+const FISCAL_BALANCE_KEY = '__fiscal_balance__'
+const FISCAL_BALANCE_COLOR = '#d97706'
+const REVENUE_RE = /revenue/i
+const EXPENDITURE_RE = /expenditure|spending/i
 
 function buildRowsFromSeries(seriesList, topUnit) {
   const dateMap = new Map()
@@ -292,10 +305,12 @@ export default function InlineChartBlock({
     )
   )
 
-  const isOilGdpSplit = String(kpiId) === '2-oil'
-  const lookupId = isOilGdpSplit ? '2' : String(kpiId)
+  const lookupId = String(kpiId)
   const isFdiKpi = lookupId === '4'
   const isInflationKpi = lookupId === '7'
+  const isGrowthSplitKpi = lookupId === '12'
+  const isFiscalKpi = lookupId === '14'
+  const isSideBySideBars = SIDE_BY_SIDE_BAR_KPIS.has(lookupId)
 
   const hasFdiBenchmark =
     Array.isArray(fdiBenchmark?.countries) &&
@@ -339,7 +354,9 @@ export default function InlineChartBlock({
 
   const isQuarterly = effectiveFreq === 'Q' && kpiResult?.frequency === 'Q'
 
-  const oilOverlay = isOilGdpSplit ? kpiResult?.oil_price_overlay : null
+  // Oil price overlay is attached by the backend to KPI 13 (Trade). Reading
+  // it unconditionally is safe because no other KPI carries the payload.
+  const oilOverlay = kpiResult?.oil_price_overlay
   const hasOilOverlay = !!(oilOverlay?.points?.length)
 
   const { seriesKeys, rows, kpiName, unitLabel } = useMemo(() => {
@@ -347,20 +364,31 @@ export default function InlineChartBlock({
       return { seriesKeys: [], rows: [], kpiName: '', unitLabel: '' }
     }
     let filtered = activeSeries
-    if (isOilGdpSplit) {
-      filtered = activeSeries.filter(s =>
-        INWARD_RE.test(s.indicator) || /\boil\b/i.test(s.indicator) && !/non.oil/i.test(s.indicator)
-      )
-      if (!filtered.length) {
-        filtered = activeSeries.filter(s => !/non.oil/i.test(s.indicator))
-      }
-      if (!filtered.length) filtered = activeSeries.slice(0, 1)
+    let series = filtered
+    let unit = filtered[0]?.unit || kpiResult.unit || ''
+    if (isGrowthSplitKpi) {
+      // KPI 12 mixes a native YoY% growth series (total) with two real-LCU
+      // level series (oil / non-oil). Convert the level series to YoY% so all
+      // three lines share a comparable scale on the same Y axis.
+      series = filtered.map((s) => {
+        const isAlreadyPercent = /growth|%/i.test(s.indicator)
+        if (isAlreadyPercent) return s
+        const lag = effectiveFreq === 'Q' ? 4 : 1
+        const points = s.points || []
+        const yoyPoints = points.map((p, i) => {
+          const prior = points[i - lag]
+          if (!prior || prior.value == null || prior.value === 0 || p.value == null) {
+            return { date: p.date, value: null }
+          }
+          return { date: p.date, value: ((p.value - prior.value) / Math.abs(prior.value)) * 100 }
+        }).filter((p) => p.value != null)
+        return { ...s, indicator: shortenIndicator(s.indicator), points: yoyPoints, unit: '%' }
+      })
+      unit = '%'
     }
-    const { seriesKeys: sk, rows: r } = buildRowsFromSeries(filtered, kpiResult.unit)
-    const unit = filtered[0]?.unit || kpiResult.unit || ''
-    const name = isOilGdpSplit ? 'GDP - Real (Oil GDP)' : kpiResult.kpi_name
-    return { seriesKeys: sk, rows: r, kpiName: name, unitLabel: unit }
-  }, [kpiResult, activeSeries, isOilGdpSplit])
+    const { seriesKeys: sk, rows: r } = buildRowsFromSeries(series, unit)
+    return { seriesKeys: sk, rows: r, kpiName: kpiResult.kpi_name, unitLabel: unit }
+  }, [kpiResult, activeSeries, isGrowthSplitKpi, effectiveFreq])
 
   const displayUnitLabel = useMemo(() => {
     if (!unitLabel) return ''
@@ -393,6 +421,10 @@ export default function InlineChartBlock({
   const fdiInwardKey = isFdiKpi ? seriesKeys.find(sk => INWARD_RE.test(sk.key))?.key : null
   const fdiOutwardKey = isFdiKpi ? seriesKeys.find(sk => OUTWARD_RE.test(sk.key))?.key : null
 
+  const fiscalRevenueKey = isFiscalKpi ? seriesKeys.find(sk => REVENUE_RE.test(sk.key))?.key : null
+  const fiscalExpenditureKey = isFiscalKpi ? seriesKeys.find(sk => EXPENDITURE_RE.test(sk.key))?.key : null
+  const hasFiscalOverlay = !!(isFiscalKpi && fiscalRevenueKey && fiscalExpenditureKey)
+
   const chartRows = useMemo(() => {
     let result = rows
     if (oilByYear) {
@@ -417,8 +449,17 @@ export default function InlineChartBlock({
         return row
       })
     }
+    if (hasFiscalOverlay) {
+      result = result.map(r => {
+        const row = { ...r }
+        const rev = r[fiscalRevenueKey]
+        const exp = r[fiscalExpenditureKey]
+        row[FISCAL_BALANCE_KEY] = (rev != null && exp != null) ? rev - exp : null
+        return row
+      })
+    }
     return result
-  }, [rows, oilByYear, isFdiKpi, fdiInwardKey, fdiOutwardKey])
+  }, [rows, oilByYear, isFdiKpi, fdiInwardKey, fdiOutwardKey, hasFiscalOverlay, fiscalRevenueKey, fiscalExpenditureKey])
 
   const cagrHighlight = useMemo(() => {
     if (!cagrResult) return null
@@ -488,16 +529,28 @@ export default function InlineChartBlock({
     : 'chart'
   const isBenchmarkMode = isFdiKpi && fdiViewMode !== 'chart'
 
+  const exportSeriesKeys = hasFiscalOverlay
+    ? [...seriesKeys, { key: 'Fiscal balance', color: FISCAL_BALANCE_COLOR }]
+    : seriesKeys
+  const exportRows = hasFiscalOverlay
+    ? rows.map(r => ({
+        ...r,
+        'Fiscal balance': (r[fiscalRevenueKey] != null && r[fiscalExpenditureKey] != null)
+          ? r[fiscalRevenueKey] - r[fiscalExpenditureKey]
+          : null,
+      }))
+    : rows
+
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(buildTsv(rows, seriesKeys, tooltipFmt))
+      await navigator.clipboard.writeText(buildTsv(exportRows, exportSeriesKeys, tooltipFmt))
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch { /* noop */ }
   }
 
   const handleExcel = () => {
-    downloadBlob(`${fileBase}.xls`, buildTsv(rows, seriesKeys, tooltipFmt), 'application/vnd.ms-excel;charset=utf-8;')
+    downloadBlob(`${fileBase}.xls`, buildTsv(exportRows, exportSeriesKeys, tooltipFmt), 'application/vnd.ms-excel;charset=utf-8;')
   }
 
   const handleCagrCalculate = (result) => {
@@ -621,8 +674,8 @@ export default function InlineChartBlock({
             </div>
           )}
           <ResponsiveContainer width="100%" height={chartHeight}>
-            <ComposedChart key={`${activeVizMode}-${effectiveFreq}`} data={chartRows}
-              margin={{ top: activeVizMode === 'line' ? 18 : 5, right: hasOilOverlay ? 36 : 24, bottom: 0, left: 0 }}>
+            <ComposedChart key={`${activeVizMode}-${effectiveFreq}-${hasOilOverlay ? 'oil' : 'no-oil'}-${hasFiscalOverlay ? 'fiscal' : 'no-fiscal'}`} data={chartRows}
+              margin={{ top: activeVizMode === 'line' ? 18 : 5, right: (hasOilOverlay || hasFiscalOverlay) ? 36 : 24, bottom: 0, left: 0 }}>
               {activeVizMode === 'line' && (
                 <defs>
                   {seriesKeys.map(sk => (
@@ -649,6 +702,13 @@ export default function InlineChartBlock({
                   label={{ value: oilOverlay.unit || '', angle: -90, position: 'insideRight',
                     style: { fontSize: 9, fill: OIL_OVERLAY_COLOR, fontFamily: 'inherit' }, dx: 12 }} />
               )}
+              {hasFiscalOverlay && (
+                <YAxis yAxisId="right" orientation="right"
+                  tick={{ fontSize: 10, fill: FISCAL_BALANCE_COLOR, fontFamily: 'inherit' }} tickFormatter={formatAxisTick}
+                  axisLine={false} tickLine={false} width={48}
+                  label={{ value: 'Balance', angle: -90, position: 'insideRight',
+                    style: { fontSize: 9, fill: FISCAL_BALANCE_COLOR, fontFamily: 'inherit' }, dx: 12 }} />
+              )}
               <Tooltip content={<CustomTooltip dateFormatter={tooltipFmt} />} />
               {isInflationKpi && (
                 <>
@@ -670,13 +730,18 @@ export default function InlineChartBlock({
                       <Line type="linear" dataKey={NET_FDI_KEY} yAxisId="left" stroke={NET_FDI_COLOR}
                         strokeWidth={2} dot={false} name="Net FDI" />
                     </>
-                  : seriesKeys.map((sk, skIdx) => (
-                      <Bar key={sk.key} dataKey={sk.key} fill={sk.color} stackId="a" yAxisId="left"
-                        label={skIdx === 0 ? (props) => {
-                          if (!keyPointIndices.has(props.index)) return null
-                          return <text x={props.x + props.width / 2} y={props.y + props.height / 2} textAnchor="middle" dominantBaseline="middle" fontSize={8} fontWeight={600} fill="#ffffff">{formatAbbrevNumber(props.value)}</text>
-                        } : false} />
-                    ))
+                  : seriesKeys.map((sk, skIdx) => {
+                        const stackProps = isSideBySideBars ? {} : { stackId: 'a' }
+                        return (
+                          <Bar key={sk.key} dataKey={sk.key} fill={sk.color}
+                            {...stackProps}
+                            yAxisId="left"
+                            label={skIdx === 0 ? (props) => {
+                              if (!keyPointIndices.has(props.index)) return null
+                              return <text x={props.x + props.width / 2} y={props.y + props.height / 2} textAnchor="middle" dominantBaseline="middle" fontSize={8} fontWeight={600} fill="#ffffff">{formatAbbrevNumber(props.value)}</text>
+                            } : false} />
+                        )
+                      })
                 )
                 : <>
                     {seriesKeys.map((sk, skIdx) => (
@@ -713,6 +778,14 @@ export default function InlineChartBlock({
                   strokeWidth={2} strokeDasharray="4 2" dot={false} connectNulls
                   name={oilOverlay.indicator || 'Brent (LCU)'} />
               )}
+              {hasFiscalOverlay && (
+                <>
+                  <ReferenceLine y={0} yAxisId="right" stroke="#94a3b8" strokeDasharray="4 3" />
+                  <Line type="linear" dataKey={FISCAL_BALANCE_KEY} yAxisId="right" stroke={FISCAL_BALANCE_COLOR}
+                    strokeWidth={2} strokeDasharray="5 3" dot={false} connectNulls
+                    name="Fiscal balance" />
+                </>
+              )}
               {cagrHighlight && (
                 <ReferenceArea x1={cagrHighlight.x1} x2={cagrHighlight.x2} yAxisId="left"
                   fill={cagrColor} fillOpacity={0.06}
@@ -721,7 +794,7 @@ export default function InlineChartBlock({
             </ComposedChart>
           </ResponsiveContainer>
         </div>
-        {(seriesKeys.length > 1 || hasOilOverlay || (isFdiKpi && fdiInwardKey)) && (
+        {(seriesKeys.length > 1 || hasOilOverlay || hasFiscalOverlay || (isFdiKpi && fdiInwardKey)) && (
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 pt-1 text-[10px]">
             {seriesKeys.map(sk => (
               <div key={sk.key} className="flex items-center gap-1.5">
@@ -739,6 +812,12 @@ export default function InlineChartBlock({
               <div className="flex items-center gap-1.5">
                 <span className="w-3 border-t-2 border-dashed" style={{ borderColor: OIL_OVERLAY_COLOR }} />
                 <span className="text-slate-500">{oilOverlay.indicator || 'Oil price (SAR)'}</span>
+              </div>
+            )}
+            {hasFiscalOverlay && (
+              <div className="flex items-center gap-1.5">
+                <span className="w-3 border-t-2 border-dashed" style={{ borderColor: FISCAL_BALANCE_COLOR }} />
+                <span className="text-slate-500">Fiscal balance</span>
               </div>
             )}
           </div>

@@ -21,7 +21,6 @@ function getScrollableAncestors(node) {
 }
 
 const POLARITY_BY_KPI = {
-  '1': 'higher_is_better',
   '2': 'higher_is_better',
   '3': 'higher_is_better',
   '4': 'higher_is_better',

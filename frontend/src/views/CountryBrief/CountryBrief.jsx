@@ -833,7 +833,7 @@ export default function CountryBrief() {
             </div>
             <p className="text-[10px] text-slate-400 text-center mt-2">
               {chartOrderProfile === 'default'
-                ? 'Oil/Non-oil → Growth → Sector → Inflation → FDI → Consumption → Debt → Unemployment → Population'
+                ? 'Oil/Non-oil → Growth → Sector → Inflation → Consumption → Trade → FDI → Fiscal → Debt → Unemployment → Population'
                 : 'Growth → Oil/Non-oil → Sector → FDI → Debt → Inflation → Unemployment → Consumption → Population'}
             </p>
           </div>

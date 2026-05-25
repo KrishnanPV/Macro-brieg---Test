@@ -13,6 +13,12 @@ from backend.services.knoema_client import fetch_kpi_data, fetch_single_kpi
 router = APIRouter(prefix="/api", tags=["data"])
 
 
+# KPI 3 (Real GDP Growth YoY) is hidden from the picker because KPI 12
+# (Real GDP Growth — Total / Oil / Non-Oil) is the canonical growth chart.
+# KPI 3 is still fetched internally for the metrics ribbon and L2 context.
+_HIDDEN_FROM_SELECTOR = {"3"}
+
+
 @router.get("/kpis", response_model=list[KpiInfo])
 def list_kpis():
     return [
@@ -22,6 +28,7 @@ def list_kpis():
             available=(s.source == "oxford"),
         )
         for s in SPECS
+        if s.id not in _HIDDEN_FROM_SELECTOR
     ]
 
 
