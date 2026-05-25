@@ -2,17 +2,21 @@
 from __future__ import annotations
 
 import logging
+import math
 import re
 from typing import Any
 
 from backend.insights_pipeline.stages import (
     evaluator,
-    hypotheses_generator,
+    hypotheses_generator,  # noqa: F401  (kept importable; intentionally unused in revamped flow)
     insights_generator,
     news_researcher,
+    query_builder,
+    signal_event_linker,
     signal_extractor,
 )
 from backend.insights_pipeline.stages.common import REASONING_MODEL, get_kpi_context
+from backend.models.kpi_registry import ISO3_TO_NAME
 
 log = logging.getLogger(__name__)
 
@@ -294,7 +298,8 @@ def _article_from_evidence(
     item: dict[str, Any],
     *,
     index: int,
-    hypothesis_titles: dict[str, str],
+    hypothesis_titles: dict[str, str] | None = None,
+    related_theme_override: str = "",
 ) -> dict[str, Any]:
     summary = str(item.get("summary") or "").strip()
     title = str(item.get("title") or "").strip()
@@ -304,8 +309,10 @@ def _article_from_evidence(
         title = f"Macro evidence {index}"
     if len(title) > 120:
         title = title[:117].rstrip() + "..."
-    hypothesis_id = str(item.get("hypothesis_id") or "").strip()
-    related_theme = hypothesis_titles.get(hypothesis_id, "")
+    related_theme = related_theme_override
+    if not related_theme and hypothesis_titles:
+        hypothesis_id = str(item.get("hypothesis_id") or "").strip()
+        related_theme = hypothesis_titles.get(hypothesis_id, "")
     article = {
         "index": index,
         "id": f"lab-{index}",
@@ -315,9 +322,60 @@ def _article_from_evidence(
         "date": str(item.get("date") or "").strip(),
         "url": str(item.get("url") or "").strip(),
     }
+    event_type = str(item.get("event_type") or "").strip()
+    actor = str(item.get("actor") or "").strip()
+    action = str(item.get("action") or "").strip()
+    if event_type:
+        article["event_type"] = event_type
+    if actor:
+        article["actor"] = actor
+    if action:
+        article["action"] = action
     if related_theme:
         article["related_theme"] = related_theme
     return article
+
+
+def _filter_top_signals_per_kpi(
+    raw_signals: list[dict[str, Any]],
+    selected_kpi_ids: list[str],
+) -> list[dict[str, Any]]:
+    """Group signals by source_kpi_id and keep top max(2, ceil(N*0.2)) per KPI.
+
+    Edge cases:
+    - When a KPI has only 1 signal, that 1 signal is kept (the min-2 rule
+      cannot be enforced and we'd rather keep representation than drop it).
+    - Signals missing ``source_kpi_id`` are bucketed under an empty key and
+      treated as their own group so they aren't silently dropped.
+    Sorting key is ``materiality_score`` (numeric, descending). Signals
+    without that field fall to the bottom of their group with score 0.0.
+    """
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for sig in raw_signals:
+        kid = str(sig.get("source_kpi_id") or "").strip()
+        grouped.setdefault(kid, []).append(sig)
+
+    ordered_keys = [k for k in selected_kpi_ids if k in grouped]
+    ordered_keys.extend(k for k in grouped.keys() if k not in ordered_keys)
+
+    selected: list[dict[str, Any]] = []
+    for kid in ordered_keys:
+        bucket = grouped.get(kid, [])
+        if not bucket:
+            continue
+        n = len(bucket)
+        if n < 2:
+            keep_n = n
+        else:
+            keep_n = max(2, math.ceil(n * 0.2))
+            keep_n = min(keep_n, n)
+        bucket_sorted = sorted(
+            bucket,
+            key=lambda s: float(s.get("materiality_score") or 0.0),
+            reverse=True,
+        )
+        selected.extend(bucket_sorted[:keep_n])
+    return selected
 
 
 def run_for_country(
@@ -343,49 +401,60 @@ def run_for_country(
         return interpretation, [], None
 
     try:
-        signal_output = signal_extractor.run_step(payload, reasoning_model=reasoning_model)
+        signal_output = signal_extractor.run_step(
+            payload,
+            reasoning_model=reasoning_model,
+            use_llm_triage=False,
+        )
     except Exception:
         log.exception("Aggregated signal extraction failed")
         signal_output = {"raw_signals": [], "selected_signals": []}
     raw_signals = _as_dict_list(signal_output.get("raw_signals"))
-    selected_signals = _as_dict_list(signal_output.get("selected_signals"))
-    if not selected_signals:
-        selected_signals = raw_signals[: min(6, len(raw_signals))]
-    if len(selected_signals) > 8:
-        selected_signals = selected_signals[:8]
+    selected_signals = _filter_top_signals_per_kpi(raw_signals, selected_kpi_ids)
 
     kpi_scope_name = _kpi_scope_name(selected_kpi_ids, kpi_results)
-    bundle_context = _build_bundle_kpi_context(selected_kpi_ids, kpi_results)
-    try:
-        hypotheses_output = hypotheses_generator.run_step(
-            country=country,
-            kpi_id="bundle",
-            kpi_name=kpi_scope_name,
-            start_year=start_year,
-            end_year=end_year,
-            selected_signals=selected_signals,
-            reasoning_model=reasoning_model,
-            kpi_context_override=bundle_context,
-        )
-        hypotheses = _as_dict_list(hypotheses_output.get("hypotheses"))[:6]
-    except Exception:
-        log.exception("Aggregated hypothesis generation failed")
-        hypotheses = []
+    country_name = ISO3_TO_NAME.get(str(country).upper().strip(), str(country))
+    kpi_names_in_scope = [
+        str((kpi_results.get(kid) or {}).get("kpi_name") or f"KPI {kid}").strip()
+        for kid in selected_kpi_ids
+    ]
 
-    evidence_items: list[dict[str, Any]] = []
-    if deep_analysis and hypotheses:
+    # Hypotheses are skipped in the revamped flow; insights_generator receives [].
+    hypotheses: list[dict[str, Any]] = []
+
+    events: list[dict[str, Any]] = []
+    query_text = ""
+    news_output: dict[str, Any] | None = None
+    query_output: dict[str, Any] | None = None
+    if deep_analysis and selected_signals:
         try:
-            news_output = news_researcher.run_step_bulk(
-                country=country,
-                kpi_name=kpi_scope_name,
-                start_year=start_year,
-                end_year=end_year,
-                hypotheses=hypotheses,
+            query_output = query_builder.run_step(
+                country_name=country_name,
+                kpi_names=kpi_names_in_scope,
+                reasoning_model=reasoning_model,
             )
-            evidence_items = _as_dict_list(news_output.get("evidence_items"))[:12]
+            query_text = str(query_output.get("query") or "").strip()
         except Exception:
-            log.exception("Aggregated news research failed")
-            evidence_items = []
+            log.exception("Aggregated query builder failed")
+            query_text = ""
+        if query_text:
+            try:
+                news_output = news_researcher.run_step_sliced(
+                    country_name=country_name,
+                    query=query_text,
+                    start_year=start_year,
+                    end_year=end_year,
+                )
+                events = _as_dict_list(news_output.get("events"))
+            except Exception:
+                log.exception("Aggregated sliced news research failed")
+                events = []
+
+    try:
+        link_output = signal_event_linker.link(selected_signals, events)
+    except Exception:
+        log.exception("Aggregated signal-event linking failed")
+        link_output = {"links": [], "unlinked_signals": [], "unlinked_events": []}
 
     try:
         if deep_analysis:
@@ -394,7 +463,7 @@ def run_for_country(
                 kpi_name=kpi_scope_name,
                 selected_signals=selected_signals,
                 hypotheses=hypotheses,
-                evidence_items=evidence_items,
+                evidence_items=events,
                 reasoning_model=reasoning_model,
             )
             eval_output = evaluator.run_step(
@@ -408,7 +477,7 @@ def run_for_country(
                 kpi_name=kpi_scope_name,
                 selected_signals=selected_signals,
                 hypotheses=hypotheses,
-                evidence_items=evidence_items,
+                evidence_items=events,
                 evaluator_feedback=_as_text_list(eval_output.get("revision_instructions")),
                 reasoning_model=reasoning_model,
             )
@@ -432,14 +501,10 @@ def run_for_country(
         final_insights=final_insights,
         selected_kpi_ids=selected_kpi_ids,
     )
-    hypothesis_titles = {
-        str(h.get("id") or "").strip(): str(h.get("title") or "").strip()
-        for h in hypotheses
-    }
     articles_flat: list[dict[str, Any]] = []
     prompt_articles: list[dict[str, Any]] = []
-    for idx, item in enumerate(evidence_items, start=1):
-        article = _article_from_evidence(item, index=idx, hypothesis_titles=hypothesis_titles)
+    for idx, event in enumerate(events, start=1):
+        article = _article_from_evidence(event, index=idx)
         articles_flat.append(article)
         prompt_articles.append({"n": idx, **article})
 
@@ -485,6 +550,11 @@ def run_for_country(
         "noise_signals": noise_signals[:24],
         "cross_kpi_connections": cross_kpi_connections,
         "composition_shifts": [],
+        "signal_event_links": link_output.get("links", []),
+        "unlinked_signals": link_output.get("unlinked_signals", []),
+        "unlinked_events": link_output.get("unlinked_events", []),
+        "news_query": query_text,
+        "news_slices": (news_output or {}).get("slices", []) if news_output else [],
     }
     prompt_bundle = {"articles": prompt_articles} if prompt_articles else None
     return interpretation, articles_flat, prompt_bundle

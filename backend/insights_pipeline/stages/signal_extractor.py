@@ -361,6 +361,7 @@ def _deterministic_signals(kpi_payload: dict[str, Any]) -> list[dict[str, Any]]:
                 "volatility_or_oscillation": volatility_text,
                 "component_drivers": component_drivers,
                 "materiality": materiality,
+                "materiality_score": round(float(materiality_score), 3),
                 "pattern": primary_pattern,
                 "source_kpi_id": source_kpi_id,
                 "source_frequency": source_frequency,
@@ -383,14 +384,28 @@ def run_step(
     kpi_payload: dict[str, Any],
     *,
     reasoning_model: str = REASONING_MODEL,
+    use_llm_triage: bool = True,
 ) -> dict[str, Any]:
-    """Extract deterministic signals and filter to high-relevance ones."""
+    """Extract deterministic signals and optionally filter to high-relevance ones.
+
+    When ``use_llm_triage`` is False the LLM triage call is skipped and the caller
+    receives ``raw_signals`` only; ``selected_signals`` is left empty so callers
+    can apply their own selection rule (e.g. per-KPI top-N by materiality_score).
+    """
     raw_signals = _deterministic_signals(kpi_payload)
     if not raw_signals:
         return {
             "raw_signals": [],
             "selected_signals": [],
             "filter_notes": "No clear deterministic signals detected.",
+            "call_meta": None,
+        }
+
+    if not use_llm_triage:
+        return {
+            "raw_signals": raw_signals,
+            "selected_signals": [],
+            "filter_notes": "LLM triage skipped; caller will select signals.",
             "call_meta": None,
         }
 
