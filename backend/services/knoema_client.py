@@ -25,6 +25,25 @@ def _parse_timerange(tr: str) -> tuple[pd.Timestamp, pd.Timestamp]:
     return pd.Timestamp(f"{start_year}-01-01"), pd.Timestamp(f"{end_year}-12-31")
 
 
+# Indicators whose YoY% is computed client-side need extra prior periods so the
+# first displayed period has a valid lookback. Keyed by KPI id so that the same
+# indicator name used by a different KPI (e.g. KPI 2 displays these levels
+# directly) is not affected.
+LOOKBACK_INDICATORS_BY_KPI: dict[str, dict[str, int]] = {
+    "12": {
+        "GDP, oil, real, LCU": 1,
+        "GDP, non-oil, real, LCU": 1,
+    },
+}
+
+
+def _widen_timerange_start(tr: str, years_back: int) -> tuple[str, pd.Timestamp]:
+    parts = tr.split("-")
+    start_year = int(parts[0]) - years_back
+    end_year = int(parts[1])
+    return f"{start_year}-{end_year}", pd.Timestamp(f"{start_year}-01-01")
+
+
 def _clip_points(
     points: list[SeriesPoint], start: pd.Timestamp, end: pd.Timestamp,
 ) -> list[SeriesPoint]:
@@ -131,10 +150,16 @@ def _fetch_all_indicators(
     """Fetch all indicators for given countries at a single frequency."""
     all_series: list[IndicatorSeries] = []
     errors: list[str] = []
+    lookback_map = LOOKBACK_INDICATORS_BY_KPI.get(kpi_id, {})
     for country in countries:
         for indicator in indicators:
+            lookback = lookback_map.get(indicator, 0)
+            if lookback > 0:
+                ind_tr, ind_clip_start = _widen_timerange_start(tr, lookback)
+            else:
+                ind_tr, ind_clip_start = tr, clip_start
             series, err = _fetch_indicator(
-                country, indicator, freq, tr, clip_start, clip_end, kpi_id=kpi_id,
+                country, indicator, freq, ind_tr, ind_clip_start, clip_end, kpi_id=kpi_id,
             )
             if series:
                 all_series.append(series)
