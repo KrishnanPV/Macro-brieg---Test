@@ -5,7 +5,7 @@ import statistics
 from typing import Any
 import pandas as pd
 
-_MULTI_SERIES_KPIS = frozenset({"1", "2", "4", "11"})
+_MULTI_SERIES_KPIS = frozenset({"2", "4", "11"})
 _PAIRED_NET_KPIS = frozenset({"4"})
 _GROWTH_GAP_KPIS = frozenset({"2"})
 

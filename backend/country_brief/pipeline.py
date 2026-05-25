@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 import uuid
 from datetime import datetime
@@ -46,6 +47,25 @@ def _ndjson(obj: dict[str, Any]) -> str:
     return json.dumps(obj, default=str) + "\n"
 
 
+def _scale_factor(unit: str) -> float:
+    """Parse magnitude tokens (billion/million/thousand) out of a unit string."""
+    u = (unit or "").lower()
+    if "trillion" in u:
+        return 1e12
+    if "billion" in u:
+        return 1e9
+    if "million" in u:
+        return 1e6
+    if "thousand" in u:
+        return 1e3
+    return 1.0
+
+
+def _max_abs(points: list[SeriesPoint]) -> float:
+    vals = [abs(float(p.value)) for p in points if p.value is not None]
+    return max(vals) if vals else 0.0
+
+
 def _split_trade_oil_non_oil(series_list: list[IndicatorSeries]) -> list[IndicatorSeries] | None:
     """Convert raw KPI 13 series into [Oil exp, Non-oil exp, Oil imp, Non-oil imp].
 
@@ -55,8 +75,10 @@ def _split_trade_oil_non_oil(series_list: list[IndicatorSeries]) -> list[Indicat
       - "Imports, goods & services, nominal, LCU"
       - "Oil, imports, annualised"
 
-    Non-oil is derived per date as ``total − oil``. Returns ``None`` if either
-    side is missing (caller falls back to the raw fetched series).
+    Non-oil is derived per date as ``total − oil``. Oil series may be reported
+    in a different scale (e.g. AED billions vs millions); we normalize via
+    unit-token parsing and a magnitude-based safety net before subtracting.
+    Returns ``None`` if either side is missing.
     """
     if not series_list:
         return None
@@ -69,8 +91,40 @@ def _split_trade_oil_non_oil(series_list: list[IndicatorSeries]) -> list[Indicat
     if not (total_exp and oil_exp and total_imp and oil_imp):
         return None
 
+    def _oil_to_total_factor(total: IndicatorSeries, oil: IndicatorSeries) -> float:
+        """Multiplier to bring `oil` values into `total`'s scale before subtracting."""
+        log.info(
+            "KPI 13 units — total[%s]: unit=%r scale=%r | oil[%s]: unit=%r scale=%r",
+            total.indicator, total.unit, total.scale,
+            oil.indicator, oil.unit, oil.scale,
+        )
+        # 1. Unit-token scaling (e.g. "AED billions" / "AED millions" → 1000x).
+        factor = _scale_factor(oil.unit) / _scale_factor(total.unit)
+        # 2. Magnitude safety net: if oil and total claim the same unit but oil
+        # peaks at < 1% of total, Oxford is shipping different scales despite
+        # identical unit strings. Infer a power-of-10 correction (typically
+        # 1e3 = billions vs millions). Capped at 1e6 to avoid wild swings.
+        if factor == 1.0:
+            total_peak = _max_abs(total.points)
+            oil_peak = _max_abs(oil.points)
+            if oil_peak > 0 and total_peak > 0 and oil_peak * 100 < total_peak:
+                ratio = total_peak / oil_peak
+                # Round down to the nearest power of 1000 so we never overshoot.
+                power = math.floor(math.log10(ratio) / 3) * 3
+                inferred = 10 ** power
+                if inferred >= 1000:
+                    log.warning(
+                        "KPI 13 magnitude mismatch (%s vs %s): peaks total=%.2g oil=%.2g, "
+                        "applying inferred ×%g scale to oil (units both report %r).",
+                        total.indicator, oil.indicator, total_peak, oil_peak,
+                        inferred, total.unit,
+                    )
+                    factor = float(inferred)
+        return factor
+
     def _derive(total: IndicatorSeries, oil: IndicatorSeries,
                 oil_label: str, non_oil_label: str) -> tuple[IndicatorSeries, IndicatorSeries]:
+        oil_factor = _oil_to_total_factor(total, oil)
         oil_by_date = {p.date: p.value for p in oil.points if p.value is not None}
         oil_points: list[SeriesPoint] = []
         non_oil_points: list[SeriesPoint] = []
@@ -80,8 +134,9 @@ def _split_trade_oil_non_oil(series_list: list[IndicatorSeries]) -> list[Indicat
             oil_val = oil_by_date.get(p.date)
             if oil_val is None:
                 continue
-            oil_points.append(SeriesPoint(date=p.date, value=float(oil_val)))
-            non_oil_points.append(SeriesPoint(date=p.date, value=float(p.value) - float(oil_val)))
+            oil_scaled = float(oil_val) * oil_factor
+            oil_points.append(SeriesPoint(date=p.date, value=oil_scaled))
+            non_oil_points.append(SeriesPoint(date=p.date, value=float(p.value) - oil_scaled))
         unit = total.unit or oil.unit
         scale = total.scale
         country = total.country
@@ -231,16 +286,16 @@ def _ensure_chart_blocks(
 
 _PROFILE_SECTION_ORDER: dict[str, dict[str, int]] = {
     # Default flat sequence:
-    #   2  → 12 → 11 → 7  → 13 → 4  → 6  → 14 → 8  → 5  → 9
+    #   2 → 12 → 11 → 7 → 6 → 13 → 4 → 14 → 8 → 5 → 9
     "default": {
-        "2": 1, "12": 1, "11": 1, "1": 1,
-        "7": 2,
+        "2": 1, "12": 1, "11": 1,
+        "7": 2, "6": 2,
         "13": 3, "4": 3,
-        "6": 4, "14": 4,
-        "8": 5, "5": 5, "9": 5,
+        "14": 4, "8": 4,
+        "5": 5, "9": 5,
     },
     "legacy": {
-        "3": 1, "2": 1, "11": 1, "1": 1,
+        "3": 1, "2": 1, "11": 1,
         "2-oil": 1,
         "4": 2, "8": 2,
         "7": 3,
@@ -251,14 +306,14 @@ _PROFILE_SECTION_ORDER: dict[str, dict[str, int]] = {
 
 _PROFILE_DISPLAY_ORDER: dict[str, dict[str, int]] = {
     "default": {
-        "2": 0, "12": 1, "11": 2, "1": 3,
-        "7": 0,
+        "2": 0, "12": 1, "11": 2,
+        "7": 0, "6": 1,
         "13": 0, "4": 1,
-        "6": 0, "14": 1,
-        "8": 0, "5": 1, "9": 2,
+        "14": 0, "8": 1,
+        "5": 0, "9": 1,
     },
     "legacy": {
-        "3": 0, "2": 1, "2-oil": 2, "11": 3, "1": 4,
+        "3": 0, "2": 1, "2-oil": 2, "11": 3,
         "4": 0, "8": 1,
         "7": 0,
         "5": 0, "6": 1,
@@ -268,14 +323,14 @@ _PROFILE_DISPLAY_ORDER: dict[str, dict[str, int]] = {
 
 _PROFILE_SECTION_KPI_REQUIREMENTS: dict[str, list[tuple[str, set[str]]]] = {
     "default": [
-        ("Growth & Economic Structure", {"1", "2", "11", "12"}),
-        ("Inflation", {"7"}),
+        ("Growth & Economic Structure", {"2", "11", "12"}),
+        ("Inflation & Consumption", {"6", "7"}),
         ("External Position & Trade", {"4", "13"}),
-        ("Domestic Demand & Public Finances", {"6", "14"}),
-        ("Debt, Labour Market & Demographics", {"5", "8", "9"}),
+        ("Fiscal & External Debt", {"8", "14"}),
+        ("Labour & Demographics", {"5", "9"}),
     ],
     "legacy": [
-        ("Economic Performance & Growth", {"1", "2", "3", "11"}),
+        ("Economic Performance & Growth", {"2", "3", "11"}),
         ("Investment & External Position", {"4", "8"}),
         ("Inflation & Monetary Conditions", {"7"}),
         ("Labour Market & Domestic Demand", {"5", "6"}),
@@ -431,36 +486,11 @@ def _compute_exhibit_map(
 def _build_exhibit_kpi_ids(*, notable_kpi_ids: list[str], is_gcc: bool) -> list[str]:
     """Build KPI IDs used for exhibit numbering.
 
-    KPI 11 and KPI 1 query the same nominal Oxford indicators, so a single
-    chart suffices. ``is_gcc`` is currently unused but kept so future GCC-only
-    exhibits can plug in without changing call sites.
+    ``is_gcc`` is currently unused but kept so future GCC-only exhibits can
+    plug in without changing call sites.
     """
     del is_gcc  # reserved for future GCC-only exhibits
-    ids = [str(k).strip() for k in notable_kpi_ids if str(k).strip()]
-    if "11" in ids and "1" in ids:
-        ids.remove("1")
-    return ids
-
-
-def _merge_sector_gdp_charts(
-    blocks: list[dict[str, Any]], ids_with_data: set[str],
-) -> list[dict[str, Any]]:
-    """Remove separate KPI 1 chart when KPI 11 is present.
-
-    Both KPIs query the same nominal Oxford indicators, so a single chart
-    suffices. Oxford EAP does not publish a real sector split.
-    """
-    if "11" not in ids_with_data or "1" not in ids_with_data:
-        return blocks
-    for block in blocks:
-        if block.get("type") != "section":
-            continue
-        children = block.get("children") or []
-        block["children"] = [
-            c for c in children
-            if not (c.get("type") == "chart_ref" and str(c.get("kpi_id", "")).strip() == "1")
-        ]
-    return blocks
+    return [str(k).strip() for k in notable_kpi_ids if str(k).strip()]
 
 
 def _assign_exhibit_labels(blocks: list[dict[str, Any]], exhibit_map: dict[str, str]) -> None:
@@ -534,7 +564,7 @@ def _ensure_kpi9_demographics_chart(
                 break
         blocks.insert(insert_at, {
             "type": "section",
-            "title": "Debt, Labour Market & Demographics",
+            "title": "Labour & Demographics",
             "children": [],
         })
         demo_idx = insert_at
@@ -583,6 +613,59 @@ def _reorder_section_charts(
     return blocks
 
 
+def _ensure_required_section_charts(
+    blocks: list[dict[str, Any]],
+    *,
+    profile: str,
+    notable_set: set[str],
+    ids_with_data: set[str],
+) -> list[dict[str, Any]]:
+    """Inject any notable KPI mapped to a section that the LLM omitted.
+
+    The LLM is unreliable about emitting every ``[CHART:kpi_id]`` it should.
+    For each section in the profile's KPI requirement map, we add a chart_ref
+    for any notable KPI that has data but wasn't already referenced anywhere in
+    the brief. ``_reorder_section_charts`` will then sort them into canonical
+    position (e.g. KPI 12 lands at 1B).
+    """
+    _, _, section_kpi_map = _get_pipeline_profile(profile)
+    # All chart_refs anywhere in the brief — avoid double-inserting a KPI
+    # that the LLM placed in the "wrong" section.
+    already_referenced: set[str] = set()
+    for block in blocks:
+        if block.get("type") != "section":
+            continue
+        for child in block.get("children") or []:
+            if child.get("type") == "chart_ref":
+                already_referenced.add(str(child.get("kpi_id", "")))
+
+    for section_title, required_kpis in section_kpi_map:
+        target_block = None
+        for block in blocks:
+            if block.get("type") == "section" and block.get("title") == section_title:
+                target_block = block
+                break
+        if target_block is None:
+            continue
+        missing = [
+            kid for kid in required_kpis
+            if kid in notable_set
+            and kid in ids_with_data
+            and kid not in already_referenced
+        ]
+        if not missing:
+            continue
+        log.info(
+            "Injecting missing chart_refs %s into section %r (LLM omitted)",
+            missing, section_title,
+        )
+        inserts = [{"type": "chart_ref", "kpi_id": kid} for kid in missing]
+        existing_children = list(target_block.get("children") or [])
+        target_block["children"] = [*inserts, *existing_children]
+        already_referenced.update(missing)
+    return blocks
+
+
 def run_pipeline(
     req: CountryBriefGenerateRequest,
     *,
@@ -607,6 +690,12 @@ def run_pipeline(
     if not manual_selection and is_gcc:
         if _OIL_NON_OIL_KPI not in available_ids:
             available_ids.append(_OIL_NON_OIL_KPI)
+    # KPI 3 (Real GDP Growth YoY) is hidden from the selector but still required
+    # internally: the metrics ribbon expects it (see metrics_ribbon.order) and
+    # L2 GDP context in aggregated_insights.py uses it. Force-include for fetching;
+    # it gets stripped from notable_ids below so it never renders as its own chart.
+    if "3" not in available_ids and "3" in {s.id for s in SPECS if s.source == "oxford"}:
+        available_ids.append("3")
     timerange = f"{req.start_year}-{req.end_year}"
 
     # ── Phase 1: Fetch KPI data ──────────────────────────────────────────
@@ -725,6 +814,18 @@ def run_pipeline(
     elif req.country.upper() in _GCC_CODES:
         if _OIL_NON_OIL_KPI in ids_with_data and _OIL_NON_OIL_KPI not in notable_ids:
             notable_ids.append(_OIL_NON_OIL_KPI)
+
+    # KPI 12 already plots total real GDP growth alongside oil/non-oil splits,
+    # so KPI 3 is redundant as a standalone chart in the default profile. Keep
+    # it fetched for the metrics ribbon and L2 GDP context; just exclude it
+    # from notable_ids so the brief writer never emits [CHART:3]. Unconditional
+    # in the default profile — even manual selection cannot bring KPI 3 back
+    # because the selector itself no longer exposes it.
+    if profile == "default":
+        notable_ids = [kid for kid in notable_ids if kid != "3"]
+        for s in scores:
+            if s.kpi_id == "3":
+                s.notable = False
 
     yield _ndjson({
         "type": "triage",
@@ -848,8 +949,13 @@ def run_pipeline(
         yield _ndjson({"type": "status", "content": "Applying output contract guardrails..."})
 
     blocks = parse_brief_blocks(guarded_text)
-    blocks = _merge_sector_gdp_charts(blocks, ids_with_data)
     blocks = _ensure_kpi9_demographics_chart(blocks, ids_with_data)
+    blocks = _ensure_required_section_charts(
+        blocks,
+        profile=profile,
+        notable_set=set(notable_ids),
+        ids_with_data=ids_with_data,
+    )
     fallback_chart_ids = [kid for kid in available_ids if kid in ids_with_data]
     blocks = _ensure_chart_blocks(blocks, preferred_chart_ids=fallback_chart_ids)
     _assign_exhibit_labels(blocks, exhibit_map)

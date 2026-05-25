@@ -5,8 +5,12 @@ from backend.country_brief import pipeline
 
 
 def test_compute_exhibit_map_default_profile_matches_new_flat_order():
-    """Default profile flat order: 2 → 12 → 11 → 7 → 13 → 4 → 6 → 14 → 8 → 5 → 9."""
-    notable = ["2", "12", "11", "1", "7", "13", "4", "6", "14", "8", "5", "9"]
+    """Default profile flat order: 2 → 12 → 11 → 7 → 6 → 13 → 4 → 14 → 8 → 5 → 9.
+
+    KPI 1 was retired — it duplicated KPI 11's data (same Oxford indicators,
+    mis-labelled as nominal). The brief now ships KPI 11 only.
+    """
+    notable = ["2", "12", "11", "7", "6", "13", "4", "14", "8", "5", "9"]
     exhibit_ids = pipeline._build_exhibit_kpi_ids(
         notable_kpi_ids=notable,
         is_gcc=True,
@@ -16,16 +20,15 @@ def test_compute_exhibit_map_default_profile_matches_new_flat_order():
     assert exhibit_map["2"] == "1A"
     assert exhibit_map["12"] == "1B"
     assert exhibit_map["11"] == "1C"
-    # KPI 1 is excluded when KPI 11 is present (shared nominal sector indicators).
     assert "1" not in exhibit_map
     assert exhibit_map["7"] == "2A"
+    assert exhibit_map["6"] == "2B"
     assert exhibit_map["13"] == "3A"
     assert exhibit_map["4"] == "3B"
-    assert exhibit_map["6"] == "4A"
-    assert exhibit_map["14"] == "4B"
-    assert exhibit_map["8"] == "5A"
-    assert exhibit_map["5"] == "5B"
-    assert exhibit_map["9"] == "5C"
+    assert exhibit_map["14"] == "4A"
+    assert exhibit_map["8"] == "4B"
+    assert exhibit_map["5"] == "5A"
+    assert exhibit_map["9"] == "5B"
 
 
 def test_check_exhibit_label_sequence_flags_section_gaps():

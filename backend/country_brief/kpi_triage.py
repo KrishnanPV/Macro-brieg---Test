@@ -79,7 +79,7 @@ def score_kpi(kpi_id: str, kpi_facts: dict[str, Any]) -> KpiScore:
             score += 1.5
             reasons.append(f"latest period {change_pct:+.1f}%")
 
-    if kpi_id in ("1", "2", "3", "11", "12"):
+    if kpi_id in ("2", "3", "11", "12"):
         # Core growth / structure KPIs always carry baseline notability.
         score += 1.0
 

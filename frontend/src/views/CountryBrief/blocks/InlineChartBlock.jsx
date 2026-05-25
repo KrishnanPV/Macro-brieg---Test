@@ -87,13 +87,17 @@ const DEFAULT_CHART = { vizMode: 'line', freq: 'Q' }
 // Bar-mode KPIs that should render side-by-side bars instead of stacked.
 const SIDE_BY_SIDE_BAR_KPIS = new Set(['14'])
 
-// KPI 13 (Trade) bars split into two stacks per period: oil/non-oil exports
-// stack together, oil/non-oil imports stack together, side-by-side per year.
+// KPI 13 (Trade) renders as two side-by-side stacks per period: oil/non-oil
+// exports in the left stack, oil/non-oil imports in the right stack. Recharts
+// stacks by `stackId`, so series with `stackId="trade_exports"` form one stack
+// and series with `stackId="trade_imports"` form the second.
+const TRADE_KPI = '13'
+
 function tradeStackIdFor(seriesKey) {
   const k = String(seriesKey).toLowerCase()
   if (k.includes('export')) return 'trade_exports'
   if (k.includes('import')) return 'trade_imports'
-  return 'a'
+  return null
 }
 
 const NET_FDI_KEY = '__net_fdi__'
@@ -649,7 +653,7 @@ export default function InlineChartBlock({
             </div>
           )}
           <ResponsiveContainer width="100%" height={chartHeight}>
-            <ComposedChart key={`${activeVizMode}-${effectiveFreq}`} data={chartRows}
+            <ComposedChart key={`${activeVizMode}-${effectiveFreq}-${hasOilOverlay ? 'oil' : 'no-oil'}`} data={chartRows}
               margin={{ top: activeVizMode === 'line' ? 18 : 5, right: hasOilOverlay ? 36 : 24, bottom: 0, left: 0 }}>
               {activeVizMode === 'line' && (
                 <defs>
@@ -698,21 +702,27 @@ export default function InlineChartBlock({
                       <Line type="linear" dataKey={NET_FDI_KEY} yAxisId="left" stroke={NET_FDI_COLOR}
                         strokeWidth={2} dot={false} name="Net FDI" />
                     </>
-                  : seriesKeys.map((sk, skIdx) => {
-                      let stackProps
-                      if (isSideBySideBars) stackProps = {}
-                      else if (lookupId === '13') stackProps = { stackId: tradeStackIdFor(sk.key) }
-                      else stackProps = { stackId: 'a' }
-                      return (
-                        <Bar key={sk.key} dataKey={sk.key} fill={sk.color}
-                          {...stackProps}
-                          yAxisId="left"
-                          label={skIdx === 0 ? (props) => {
-                            if (!keyPointIndices.has(props.index)) return null
-                            return <text x={props.x + props.width / 2} y={props.y + props.height / 2} textAnchor="middle" dominantBaseline="middle" fontSize={8} fontWeight={600} fill="#ffffff">{formatAbbrevNumber(props.value)}</text>
-                          } : false} />
-                      )
-                    })
+                  : lookupId === TRADE_KPI
+                    ? seriesKeys.map((sk) => {
+                        const stackId = tradeStackIdFor(sk.key)
+                        if (!stackId) return null
+                        return (
+                          <Bar key={sk.key} dataKey={sk.key} fill={sk.color}
+                            stackId={stackId} yAxisId="left" />
+                        )
+                      })
+                    : seriesKeys.map((sk, skIdx) => {
+                        const stackProps = isSideBySideBars ? {} : { stackId: 'a' }
+                        return (
+                          <Bar key={sk.key} dataKey={sk.key} fill={sk.color}
+                            {...stackProps}
+                            yAxisId="left"
+                            label={skIdx === 0 ? (props) => {
+                              if (!keyPointIndices.has(props.index)) return null
+                              return <text x={props.x + props.width / 2} y={props.y + props.height / 2} textAnchor="middle" dominantBaseline="middle" fontSize={8} fontWeight={600} fill="#ffffff">{formatAbbrevNumber(props.value)}</text>
+                            } : false} />
+                        )
+                      })
                 )
                 : <>
                     {seriesKeys.map((sk, skIdx) => (

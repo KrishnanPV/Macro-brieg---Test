@@ -26,20 +26,17 @@ def _kpi_specs() -> list[KpiSpec]:
                 ["GDP real, annual growth"],
                 "EAP_TIMERANGE_Q",
                 "Aggregate real GDP growth (y/y)."),
-        KpiSpec("11", "GDP by Sector", "oxford", "Q",
+        KpiSpec("11", "GDP by Sector (Real, 2010 Prices)", "oxford", "Q",
                 ["GDP, agriculture", "GDP, industry", "GDP, manufacturing", "GDP, services"],
                 "EAP_TIMERANGE_Q",
-                "GDP by 4 sectors (nominal LCU): agriculture, industry, "
-                "manufacturing, services. Oxford EAP does not publish a real "
-                "sector split, so only nominal series are available."),
+                "GDP by 4 sectors (real LCU at 2010 prices): agriculture, "
+                "industry, manufacturing, services. Oxford EAP only publishes "
+                "the real (2010 prices) sector split — no nominal counterpart "
+                "exists in the catalog."),
         KpiSpec("2", "GDP - Real (Oil vs Non-Oil)", "oxford", "Q",
                 ["GDP, oil, real, LCU", "GDP, non-oil, real, LCU"],
                 "EAP_TIMERANGE_Q",
                 "Real GDP split: oil vs non-oil."),
-        KpiSpec("1", "GDP - Nominal (Split by industry)", "oxford", "Q",
-                ["GDP, agriculture", "GDP, industry", "GDP, manufacturing", "GDP, services"],
-                "EAP_TIMERANGE_Q",
-                "Sector GDP in LCU (current prices)."),
         KpiSpec("4", "FDI inflow & outflow", "oxford", "Q",
                 ["Foreign direct investment, inward", "Foreign direct investment, outward"],
                 "EAP_TIMERANGE_Q",
@@ -64,7 +61,7 @@ def _kpi_specs() -> list[KpiSpec]:
         KpiSpec("10", "GDP contribution from GDP categories (expenditure / NEA)", "imf", "A",
                 [], "EAP_TIMERANGE_A",
                 "IMF NEA — not available via Oxford EAP."),
-        KpiSpec("12", "GDP Growth Split (Total / Oil / Non-Oil)", "oxford", "Q",
+        KpiSpec("12", "Real GDP Growth (Total / Oil / Non-Oil)", "oxford", "Q",
                 ["GDP real, annual growth",
                  "GDP, oil, real, LCU",
                  "GDP, non-oil, real, LCU"],
@@ -123,29 +120,6 @@ class InsightLens:
 
 
 INSIGHT_LENSES: dict[str, InsightLens] = {
-    "1": InsightLens(
-        headline="Nominal GDP by Sector",
-        notability_cues=[
-            "Sector-share shifts >3pp between periods signal structural change (diversification or concentration).",
-            "The composition data now includes pre-computed share percentages — use them directly.",
-        ],
-        context_hooks=[
-            "National economic diversification programs (e.g. Saudi Vision 2030, UAE Economic Vision 2030, Qatar National Vision 2030).",
-            "Sector-specific industrial policy, privatization drives, or mega-project spending (e.g. NEOM, tourism gigaprojects).",
-            "Commodity price cycles and their pass-through to nominal GDP composition.",
-        ],
-        forbidden_claims=[
-            "Do not infer real growth from nominal series — nominal changes can reflect price, not output.",
-            "Do not compare absolute LCU values across countries with different currencies.",
-            "Do not infer sector productivity from nominal output changes.",
-        ],
-        units_note="Local currency units at current prices (nominal). Synthesize sectors — do not bullet each one separately.",
-        narrative_guidance=[
-            "Synthesize agriculture, industry, and services into a single composition story; do not bullet each sector separately.",
-            "This is a NOMINAL series — caveat that share changes can reflect price effects, not just real output shifts.",
-            "Lead with which sector is largest and how its share moved, then explain the driver.",
-        ],
-    ),
     "2": InsightLens(
         headline="Real GDP by Industry (Oil vs Non-Oil)",
         notability_cues=[
@@ -431,24 +405,24 @@ INSIGHT_LENSES: dict[str, InsightLens] = {
         ],
     ),
     "11": InsightLens(
-        headline="GDP by Sector",
+        headline="GDP by Sector (Real, 2010 Prices)",
         notability_cues=[
+            "Real sector growth divergence — manufacturing or services outpacing industry signals structural shift.",
             "Sector-share shifts >3pp between periods signal structural change — use pre-computed composition data.",
-            "Manufacturing growing faster than overall industry signals higher-value-added industrialization.",
         ],
         context_hooks=[
             "National economic diversification programs (e.g. Saudi Vision 2030, UAE Economic Vision 2030, Qatar National Vision 2030).",
             "Sector-specific industrial policy, privatization drives, or mega-project spending.",
-            "Commodity price cycles and their pass-through to nominal sector composition.",
+            "Manufacturing scale-up programs, services exports, and tourism build-out.",
         ],
         forbidden_claims=[
             "Do not compare absolute LCU values across countries with different currencies.",
-            "Do not infer real output growth from this series — Oxford EAP only publishes nominal sector splits, so share changes can reflect price effects rather than volume.",
+            "Do not treat these values as current-price nominal — they are constant 2010 prices, so trends reflect volume, not price.",
         ],
-        units_note="Nominal LCU (current prices). Synthesize sectors — do not bullet each one separately.",
+        units_note="Real LCU at 2010 constant prices. Synthesize sectors — do not bullet each one separately.",
         narrative_guidance=[
-            "Lead with which sectors are gaining share and connect to named policy programmes.",
-            "Caveat that this is a nominal series — share shifts may reflect price effects, not real output reallocation.",
+            "Lead with which sectors are growing fastest in real terms and connect to named policy programmes.",
+            "Frame share shifts as real (volume) reallocation, not price-driven composition.",
             "Synthesize sectors into a composition story. Do not bullet each sector separately.",
         ],
     ),
@@ -478,7 +452,11 @@ CURRENCY_NAMES: dict[str, str] = {
 }
 
 
-_STRIP_PRICE_QUALIFIER_KPIS = frozenset(("1",))
+# KPIs whose Oxford-returned unit strings should have their price-base
+# qualifier (e.g. "(2010 prices)") stripped before display. Currently empty —
+# KPI 1 used to live here, but it was retired (it pulled the same real sector
+# series as KPI 11 and mis-labelled it nominal).
+_STRIP_PRICE_QUALIFIER_KPIS: frozenset[str] = frozenset()
 
 
 def resolve_unit_label(raw_unit: str, country_iso3: str = "", *, kpi_id: str = "") -> str:
@@ -486,7 +464,6 @@ def resolve_unit_label(raw_unit: str, country_iso3: str = "", *, kpi_id: str = "
 
     Examples:
         'Riyal, Millions: 2023 prices' → 'SAR millions (2023 prices)'
-        'Riyal, Millions: 2023 prices' → 'SAR millions'  (kpi_id="1", qualifier stripped)
         'US$, Millions'                → 'USD millions'
         '% year'                       → '% / year'
         'Person, Thousands'            → 'thousands'
@@ -616,19 +593,6 @@ class KpiNewsQuery:
 
 
 KPI_NEWS_QUERIES: dict[str, KpiNewsQuery] = {
-    "1": KpiNewsQuery(
-        query_template=(
-            '(GDP OR "gross domestic product" OR econom* OR "economic output" '
-            'OR industr* OR manufactur* OR services OR agriculture '
-            'OR "private sector" OR "public sector" OR "sectoral composition" '
-            'OR "value added" OR "economic activity" OR output OR production) '
-            'AND ({country})'
-        ),
-        themes="Economics,Finance,Business,Politics",
-        signal_terms=["GDP", "gross domestic product", "sector", "industry",
-                       "manufacturing", "services", "agriculture", "output",
-                       "value added", "economic activity", "production"],
-    ),
     "2": KpiNewsQuery(
         query_template=(
             '(GDP OR "non-oil" OR "oil sector" OR "oil GDP" '
