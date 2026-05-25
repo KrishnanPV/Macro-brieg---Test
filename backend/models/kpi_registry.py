@@ -68,15 +68,17 @@ def _kpi_specs() -> list[KpiSpec]:
                 "EAP_TIMERANGE_Q",
                 "Combined YoY growth lines: total real GDP growth (native) plus oil "
                 "and non-oil growth computed from real LCU levels."),
-        KpiSpec("13", "Trade — Oil vs Non-Oil Exports & Imports", "oxford", "A",
+        KpiSpec("13", "Trade — Exports & Imports", "oxford", "A",
                 ["Exports, goods & services, nominal, LCU",
-                 "Oil, exports, annualised",
-                 "Imports, goods & services, nominal, LCU",
-                 "Oil, imports, annualised"],
+                 "Imports, goods & services, nominal, LCU"],
                 "EAP_TIMERANGE_A",
-                "Nominal LCU exports and imports of goods & services, split into "
-                "oil and non-oil legs. Non-oil is derived as total minus oil; "
-                "rendered as two stacked bars per year with a Brent overlay."),
+                "Nominal LCU exports and imports of goods & services. Rendered "
+                "as two side-by-side bars per year (exports / imports) with a "
+                "Brent oil-price overlay on a secondary axis. Oxford EAP does "
+                "not publish an LCU-denominated oil/non-oil trade split — the "
+                "only oil-trade series in the catalog ('Oil, exports/imports, "
+                "annualised') are in mtoe (volume), not currency, so a stacked "
+                "oil/non-oil composition cannot be derived directly."),
         KpiSpec("14", "Government Revenue & Expenditure", "oxford", "A",
                 ["Government revenue, total",
                  "Government expenditure, total"],
@@ -355,30 +357,34 @@ INSIGHT_LENSES: dict[str, InsightLens] = {
         ],
     ),
     "13": InsightLens(
-        headline="Trade — Oil vs Non-Oil Exports & Imports (with Oil Price Overlay)",
+        headline="Trade — Exports & Imports (with Oil Price Overlay)",
         notability_cues=[
             "Net trade flips (exports crossing imports) and large widenings of the trade balance.",
-            "Shifts in the oil share of exports — rising non-oil exports are a diversification signal.",
-            "Co-movement between the oil-price overlay and the oil-export leg.",
+            "Co-movement between the oil-price overlay and exports — for commodity exporters, "
+            "swings in exports often track Brent.",
             "Sharp import compression often signals consumption or investment weakness.",
+            "Sustained export growth above import growth signals widening external surplus.",
         ],
         context_hooks=[
             "Tariff changes, trade agreements, and free-zone activity affecting goods flows.",
-            "Oil-price cycles transmitting to commodity-exporter oil-export receipts (visible against the overlay).",
+            "Oil-price cycles transmitting to commodity-exporter receipts (visible against the overlay).",
             "Currency moves changing the LCU value of foreign-currency trade flows.",
-            "Diversification programmes lifting the non-oil export base.",
+            "Diversification programmes lifting the non-oil export base (qualitative context only; "
+            "this chart does not show an oil/non-oil split).",
         ],
         forbidden_claims=[
-            "Do not claim oil prices drive non-oil exports without supporting evidence.",
+            "Do not claim an oil/non-oil composition from this chart — Oxford EAP does not "
+            "publish currency-denominated oil-trade series, so no split is shown.",
             "Do not infer current-account balance from goods & services trade alone.",
             "Do not infer real volume growth from this chart — series are nominal.",
         ],
-        units_note="Nominal LCU. Each year shows two stacked bars (exports / imports); each bar splits into oil (bottom) and non-oil (top). Non-oil is derived as total − oil. Oil-price line is on a secondary axis and is informational, not additive.",
+        units_note="Nominal LCU. Each year shows two side-by-side bars: total Exports and total Imports of goods & services. The oil-price overlay (Brent in LCU/bbl) is on a secondary axis and is informational, not additive.",
         narrative_guidance=[
-            "Lead with the oil vs non-oil composition of exports and how it is shifting over time.",
-            "Frame the import side similarly when oil-import share is material (net oil importers).",
-            "For oil exporters, explicitly relate oil-export swings to the oil-price line on the right axis.",
-            "Caveat that series are nominal LCU — share shifts can reflect price as well as volume.",
+            "Lead with the trade balance trajectory: surplus vs deficit, widening vs narrowing.",
+            "For oil-exporting economies, relate export swings to the Brent overlay on the right axis.",
+            "Caveat that series are nominal LCU — moves can reflect price as well as volume.",
+            "If oil/non-oil composition is relevant to the narrative, source it from KPI 2 "
+            "(real GDP oil vs non-oil) or news context — not from this chart.",
         ],
     ),
     "14": InsightLens(

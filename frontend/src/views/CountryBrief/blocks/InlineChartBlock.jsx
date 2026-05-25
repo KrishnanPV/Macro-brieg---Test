@@ -85,20 +85,10 @@ const KPI_CHART_DEFAULTS = {
 const DEFAULT_CHART = { vizMode: 'line', freq: 'Q' }
 
 // Bar-mode KPIs that should render side-by-side bars instead of stacked.
-const SIDE_BY_SIDE_BAR_KPIS = new Set(['14'])
-
-// KPI 13 (Trade) renders as two side-by-side stacks per period: oil/non-oil
-// exports in the left stack, oil/non-oil imports in the right stack. Recharts
-// stacks by `stackId`, so series with `stackId="trade_exports"` form one stack
-// and series with `stackId="trade_imports"` form the second.
-const TRADE_KPI = '13'
-
-function tradeStackIdFor(seriesKey) {
-  const k = String(seriesKey).toLowerCase()
-  if (k.includes('export')) return 'trade_exports'
-  if (k.includes('import')) return 'trade_imports'
-  return null
-}
+// KPI 13 (Trade) shows two side-by-side bars per year — total Exports vs total
+// Imports in LCU — with the Brent oil-price overlay on a secondary axis.
+// (Oxford EAP doesn't publish an LCU-denominated oil/non-oil trade split.)
+const SIDE_BY_SIDE_BAR_KPIS = new Set(['13', '14'])
 
 const NET_FDI_KEY = '__net_fdi__'
 const NET_FDI_COLOR = '#16a34a'
@@ -702,16 +692,7 @@ export default function InlineChartBlock({
                       <Line type="linear" dataKey={NET_FDI_KEY} yAxisId="left" stroke={NET_FDI_COLOR}
                         strokeWidth={2} dot={false} name="Net FDI" />
                     </>
-                  : lookupId === TRADE_KPI
-                    ? seriesKeys.map((sk) => {
-                        const stackId = tradeStackIdFor(sk.key)
-                        if (!stackId) return null
-                        return (
-                          <Bar key={sk.key} dataKey={sk.key} fill={sk.color}
-                            stackId={stackId} yAxisId="left" />
-                        )
-                      })
-                    : seriesKeys.map((sk, skIdx) => {
+                  : seriesKeys.map((sk, skIdx) => {
                         const stackProps = isSideBySideBars ? {} : { stackId: 'a' }
                         return (
                           <Bar key={sk.key} dataKey={sk.key} fill={sk.color}

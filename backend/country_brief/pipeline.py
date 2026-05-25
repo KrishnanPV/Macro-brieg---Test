@@ -12,14 +12,13 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 import re
 import uuid
 from datetime import datetime
 from typing import Any, Iterator
 
 from backend.models.kpi_registry import SPECS
-from backend.models.schemas import CountryBriefGenerateRequest, IndicatorSeries, KpiResult, SeriesPoint
+from backend.models.schemas import CountryBriefGenerateRequest, KpiResult
 from backend.services.derived_facts import compute_derived_facts
 from backend.services.knoema_client import fetch_kpi_data, fetch_oil_price_data
 from backend.country_brief.kpi_triage import triage_kpis
@@ -45,129 +44,6 @@ _fdi_benchmark_cache: dict[str, dict[str, Any]] = {}
 
 def _ndjson(obj: dict[str, Any]) -> str:
     return json.dumps(obj, default=str) + "\n"
-
-
-def _scale_factor(unit: str) -> float:
-    """Parse magnitude tokens (billion/million/thousand) out of a unit string."""
-    u = (unit or "").lower()
-    if "trillion" in u:
-        return 1e12
-    if "billion" in u:
-        return 1e9
-    if "million" in u:
-        return 1e6
-    if "thousand" in u:
-        return 1e3
-    return 1.0
-
-
-def _max_abs(points: list[SeriesPoint]) -> float:
-    vals = [abs(float(p.value)) for p in points if p.value is not None]
-    return max(vals) if vals else 0.0
-
-
-def _split_trade_oil_non_oil(series_list: list[IndicatorSeries]) -> list[IndicatorSeries] | None:
-    """Convert raw KPI 13 series into [Oil exp, Non-oil exp, Oil imp, Non-oil imp].
-
-    Inputs are the four indicators declared in the KPI 13 spec:
-      - "Exports, goods & services, nominal, LCU"
-      - "Oil, exports, annualised"
-      - "Imports, goods & services, nominal, LCU"
-      - "Oil, imports, annualised"
-
-    Non-oil is derived per date as ``total − oil``. Oil series may be reported
-    in a different scale (e.g. AED billions vs millions); we normalize via
-    unit-token parsing and a magnitude-based safety net before subtracting.
-    Returns ``None`` if either side is missing.
-    """
-    if not series_list:
-        return None
-
-    by_indicator: dict[str, IndicatorSeries] = {s.indicator: s for s in series_list}
-    total_exp = by_indicator.get("Exports, goods & services, nominal, LCU")
-    oil_exp = by_indicator.get("Oil, exports, annualised")
-    total_imp = by_indicator.get("Imports, goods & services, nominal, LCU")
-    oil_imp = by_indicator.get("Oil, imports, annualised")
-    if not (total_exp and oil_exp and total_imp and oil_imp):
-        return None
-
-    def _oil_to_total_factor(total: IndicatorSeries, oil: IndicatorSeries) -> float:
-        """Multiplier to bring `oil` values into `total`'s scale before subtracting."""
-        log.info(
-            "KPI 13 units — total[%s]: unit=%r scale=%r | oil[%s]: unit=%r scale=%r",
-            total.indicator, total.unit, total.scale,
-            oil.indicator, oil.unit, oil.scale,
-        )
-        # 1. Unit-token scaling (e.g. "AED billions" / "AED millions" → 1000x).
-        factor = _scale_factor(oil.unit) / _scale_factor(total.unit)
-        # 2. Magnitude safety net: if oil and total claim the same unit but oil
-        # peaks at < 1% of total, Oxford is shipping different scales despite
-        # identical unit strings. Infer a power-of-10 correction (typically
-        # 1e3 = billions vs millions). Capped at 1e6 to avoid wild swings.
-        if factor == 1.0:
-            total_peak = _max_abs(total.points)
-            oil_peak = _max_abs(oil.points)
-            if oil_peak > 0 and total_peak > 0 and oil_peak * 100 < total_peak:
-                ratio = total_peak / oil_peak
-                # Round down to the nearest power of 1000 so we never overshoot.
-                power = math.floor(math.log10(ratio) / 3) * 3
-                inferred = 10 ** power
-                if inferred >= 1000:
-                    log.warning(
-                        "KPI 13 magnitude mismatch (%s vs %s): peaks total=%.2g oil=%.2g, "
-                        "applying inferred ×%g scale to oil (units both report %r).",
-                        total.indicator, oil.indicator, total_peak, oil_peak,
-                        inferred, total.unit,
-                    )
-                    factor = float(inferred)
-        return factor
-
-    def _derive(total: IndicatorSeries, oil: IndicatorSeries,
-                oil_label: str, non_oil_label: str) -> tuple[IndicatorSeries, IndicatorSeries]:
-        oil_factor = _oil_to_total_factor(total, oil)
-        oil_by_date = {p.date: p.value for p in oil.points if p.value is not None}
-        oil_points: list[SeriesPoint] = []
-        non_oil_points: list[SeriesPoint] = []
-        for p in total.points:
-            if p.value is None:
-                continue
-            oil_val = oil_by_date.get(p.date)
-            if oil_val is None:
-                continue
-            oil_scaled = float(oil_val) * oil_factor
-            oil_points.append(SeriesPoint(date=p.date, value=oil_scaled))
-            non_oil_points.append(SeriesPoint(date=p.date, value=float(p.value) - oil_scaled))
-        unit = total.unit or oil.unit
-        scale = total.scale
-        country = total.country
-        return (
-            IndicatorSeries(country=country, indicator=oil_label,
-                            points=oil_points, unit=unit, scale=scale),
-            IndicatorSeries(country=country, indicator=non_oil_label,
-                            points=non_oil_points, unit=unit, scale=scale),
-        )
-
-    oil_exports, non_oil_exports = _derive(total_exp, oil_exp, "Oil exports", "Non-oil exports")
-    oil_imports, non_oil_imports = _derive(total_imp, oil_imp, "Oil imports", "Non-oil imports")
-
-    # If both sides produced no overlapping dates, treat as unusable.
-    if not (oil_exports.points or non_oil_exports.points) and not (oil_imports.points or non_oil_imports.points):
-        return None
-    return [oil_exports, non_oil_exports, oil_imports, non_oil_imports]
-
-
-def _apply_trade_oil_split(fetch_resp: Any) -> None:
-    """Mutate KPI 13 entries in ``fetch_resp.results`` to carry the oil split."""
-    for r in fetch_resp.results:
-        if r.kpi_id != _TRADE_KPI:
-            continue
-        derived_q = _split_trade_oil_non_oil(r.series)
-        if derived_q is not None:
-            r.series = derived_q
-        if r.series_annual:
-            derived_a = _split_trade_oil_non_oil(r.series_annual)
-            if derived_a is not None:
-                r.series_annual = derived_a
 
 
 def _analysis_ready_results(results_raw: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
@@ -708,10 +584,6 @@ def run_pipeline(
         timerange_a=timerange,
         dual_fetch=True,
     )
-    # Replace KPI 13's raw totals + oil legs with the derived oil/non-oil split
-    # before any downstream consumer (analysis, frontend, prompts) sees them.
-    if _TRADE_KPI in available_ids:
-        _apply_trade_oil_split(fetch_resp)
     # Oil price overlay for KPI 13 (Trade — Exports & Imports).
     # Only fetched when the Trade KPI is in scope; the overlay never appears
     # on any other chart.

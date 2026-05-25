@@ -125,10 +125,9 @@ def score_kpi(kpi_id: str, kpi_facts: dict[str, Any]) -> KpiScore:
 
     if kpi_id == "13":
         # Trade balance flips or wide gaps between exports and imports are notable.
-        # KPI 13 series are now [Oil exports, Non-oil exports, Oil imports, Non-oil imports];
-        # sum the two legs per side to recover totals for the balance calculation.
-        totals: dict[str, float] = {}
-        oil_share_export: float | None = None
+        # KPI 13 series are [Exports total, Imports total] in nominal LCU
+        # (Oxford EAP does not publish a currency-denominated oil/non-oil split).
+        latest_by_side: dict[str, float] = {}
         for sf in series_facts:
             if sf.get("note"):
                 continue
@@ -136,27 +135,17 @@ def score_kpi(kpi_id: str, kpi_facts: dict[str, Any]) -> KpiScore:
             latest = (sf.get("latest") or {}).get("value")
             if latest is None:
                 continue
-            side = "export" if "export" in ind else ("import" if "import" in ind else None)
-            if side is None:
-                continue
-            totals[side] = totals.get(side, 0.0) + latest
-            if side == "export" and "non-oil" not in ind and "oil" in ind:
-                # Track latest oil-export level for share computation below.
-                totals["__oil_export"] = latest
-        exp = totals.get("export")
-        imp = totals.get("import")
+            if "export" in ind:
+                latest_by_side.setdefault("export", latest)
+            elif "import" in ind:
+                latest_by_side.setdefault("import", latest)
+        exp = latest_by_side.get("export")
+        imp = latest_by_side.get("import")
         if exp is not None and imp is not None and imp:
             balance_share = (exp - imp) / abs(imp) * 100
             if abs(balance_share) > 15:
                 score += 1.5
                 reasons.append(f"trade balance {balance_share:+.1f}% of imports")
-        oil_exp = totals.get("__oil_export")
-        if exp and oil_exp is not None and exp:
-            oil_share_export = oil_exp / exp * 100
-            # Flag heavy oil concentration (>50%) — relevant for diversification framing.
-            if oil_share_export > 50:
-                score += 1.0
-                reasons.append(f"oil = {oil_share_export:.0f}% of exports")
 
     if kpi_id == "14":
         # Fiscal balance swings (revenue vs expenditure gap) are notable.
