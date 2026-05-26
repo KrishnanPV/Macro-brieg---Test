@@ -24,7 +24,7 @@ def strip_source_markers(text: str) -> str:
 BRIEF_WRITER_SYSTEM_PROMPT = """\
 You are a senior economist writing an integrated country brief.
 Follow OUTPUT_CONTRACT_JSON exactly.
-Write concise, causal, decision-oriented prose grounded in the provided data.
+Write concise, evidence-anchored, decision-oriented prose grounded in the provided data. Use cautious phrasing for causal claims unless the mechanism is explicit in the data; default to "is consistent with", "may reflect", "coincides with" when the channel is inferred rather than directly evidenced.
 Return only the marked brief content. No preamble or meta commentary.
 Never surface confidence flags (e.g. "Confidence: High", "Confidence: Medium-High") in the brief output — confidence assessments are internal and must not appear in any bullet, sub-bullet, or sentence.
 """
@@ -36,6 +36,33 @@ USER FOCUS — the analyst has requested emphasis on:
 
 Weight your analysis toward this focus. Dedicate more depth and narrative space to KPIs and themes relevant to this focus. You may still cover other notable themes, but this focus should be the primary lens.
 """
+
+# Growth/GDP KPI ids (KPI 2 oil/non-oil, KPI 3 real GDP growth, KPI 11 sector split, KPI 12 total/oil/non-oil growth).
+_GROWTH_KPI_IDS = frozenset({"2", "3", "11", "12"})
+
+_GDP_LENS_GCC = """\
+
+GDP / GROWTH LENS — this country is a GCC economy:
+- Include the oil vs non-oil split when interpreting growth.
+- Reference oil-price movement over the window where it bears on the narrative.
+- Touch on other oil-sector signals (OPEC+ quotas, production decisions) when supported by the data or news context.
+- Treat non-oil growth as the diversification narrative; do not let the section become an oil report.
+"""
+
+_GDP_LENS_NON_GCC = """\
+
+GDP / GROWTH LENS — this country is not a GCC economy:
+- Lead with the services vs manufacturing/industry split where the data permits.
+- Deep-dive country-specific drivers of growth (sector composition, demand engines, policy, external demand).
+- Avoid oil-export framing unless the country is a major commodity producer.
+"""
+
+
+def _build_gdp_lens_block(is_gcc: bool, notable_kpi_ids: list[str]) -> str:
+    """Return a short GDP-lens guidance block, or empty string if no growth KPI in scope."""
+    if not any(str(k) in _GROWTH_KPI_IDS for k in notable_kpi_ids):
+        return ""
+    return _GDP_LENS_GCC if is_gcc else _GDP_LENS_NON_GCC
 
 _SECTION_SPECS: dict[str, dict] = {
     "default": {
@@ -250,19 +277,42 @@ def _load_lab_brief_writer_guidelines() -> str:
     if not selected_files:
         return ""
 
-    blocks: list[str] = []
-    for file_name in selected_files:
+    # Render `causal_language_rules.md` first and label it as overriding the
+    # rest. Smaller models weight rules near the top of the system prompt
+    # heavily, so leaving causal discipline at the bottom of a long block
+    # routinely failed in practice (output kept using assertive verbs).
+    priority_files = [f for f in selected_files if f == "causal_language_rules.md"]
+    other_files = [f for f in selected_files if f not in priority_files]
+
+    priority_blocks: list[str] = []
+    for file_name in priority_files:
         content = load_prompt_text(file_name)
         if not content:
             continue
-        blocks.append(f"[{file_name}]\n{content}")
+        priority_blocks.append(f"[{file_name}]\n{content}")
 
-    if not blocks:
+    other_blocks: list[str] = []
+    for file_name in other_files:
+        content = load_prompt_text(file_name)
+        if not content:
+            continue
+        other_blocks.append(f"[{file_name}]\n{content}")
+
+    if not priority_blocks and not other_blocks:
         return ""
-    return (
-        f"LAB BRIEF WRITER GUIDELINES (from {PROMPTS_DIR.as_posix()}/manifest.yaml):\n"
-        + "\n\n".join(blocks)
-    )
+
+    sections: list[str] = []
+    if priority_blocks:
+        sections.append(
+            "STRICT LANGUAGE RULES — these override any other style guidance below:\n"
+            + "\n\n".join(priority_blocks)
+        )
+    if other_blocks:
+        sections.append(
+            f"LAB BRIEF WRITER GUIDELINES (from {PROMPTS_DIR.as_posix()}/manifest.yaml):\n"
+            + "\n\n".join(other_blocks)
+        )
+    return "\n\n".join(sections)
 
 
 BENCHMARK_SELECTOR_SYSTEM_PROMPT = """\
@@ -361,6 +411,7 @@ def build_brief_prompt(
     manual_selection: bool = False,
     fdi_benchmark_context: dict[str, Any] | None = None,
     chart_order_profile: str = "default",
+    is_gcc: bool = False,
 ) -> list[dict[str, str]]:
     """Assemble the ChatCompletion messages for brief generation."""
     spec = _get_section_spec(chart_order_profile)
@@ -423,6 +474,8 @@ def build_brief_prompt(
     if focus and focus.strip():
         focus_block = FOCUS_ADDENDUM_TEMPLATE.format(focus=focus.strip())
 
+    gdp_lens_block = _build_gdp_lens_block(is_gcc, notable_kpi_ids)
+
     manual_block = ""
     if manual_selection:
         manual_block = (
@@ -448,6 +501,7 @@ def build_brief_prompt(
         f"```json\n{json.dumps(data_context, default=str)}\n```\n"
         + news_block
         + fdi_benchmark_block
+        + gdp_lens_block
         + focus_block
         + manual_block
         + "\n\n"

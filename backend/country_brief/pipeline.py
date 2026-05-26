@@ -754,6 +754,7 @@ def run_pipeline(
         manual_selection=manual_selection,
         fdi_benchmark_context=fdi_benchmark_payload,
         chart_order_profile=profile,
+        is_gcc=is_gcc,
     )
 
     interpretation_json = json.dumps(signal_interpretation, indent=2, default=str)
@@ -776,8 +777,15 @@ def run_pipeline(
     injection += (
         "HOW TO USE THIS INTERPRETATION:\n"
         "Each causal_chain has a trigger, mechanism, and kpi_impact. "
-        "Translate each into a natural prose bullet — name the trigger, explain the channel, "
-        "cite the data outcome. Do NOT use arrow symbols or template notation in your prose. "
+        "Translate each into a natural prose bullet — name the trigger and the data outcome, "
+        "and describe the channel only when the mechanism is directly evidenced. "
+        "When the mechanism is inferred rather than proven, use cautious connectors such as "
+        "'is consistent with', 'may reflect', 'coincides with', 'partly attributable to', "
+        "or 'against a backdrop of' instead of asserting causation. "
+        "Do not adopt strong upstream wording verbatim — rephrase any assertive language from "
+        "the interpretation (e.g. 'swung decisively', 'dominant engine', 'tightened') into "
+        "neutral, evidence-led prose. "
+        "Do NOT use arrow symbols or template notation in your prose. "
         "Ignore noise_signals. Use cross_kpi_connections to synthesize.\n\n"
     )
 
