@@ -312,19 +312,61 @@ def _accumulate_cost(totals: dict[str, float], call_meta: dict[str, Any] | None)
         totals[key] += float(call_meta.get(key, 0.0) or 0.0)
 
 
+def _load_existing_excerpt_ids(annotations_path: Path) -> set[str]:
+    """Return the set of excerpt_ids already present in the annotations JSONL.
+
+    Used to support resume-on-crash: when --append-annotations is set, any
+    excerpt with a matching excerpt_id is skipped instead of re-annotated.
+    Malformed lines are tolerated and ignored so a partial write from a
+    previous crash doesn't block resuming.
+    """
+    if not annotations_path.exists():
+        return set()
+    seen: set[str] = set()
+    for raw_line in annotations_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            parsed = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        excerpt_id = parsed.get("excerpt_id") if isinstance(parsed, dict) else None
+        if isinstance(excerpt_id, str) and excerpt_id:
+            seen.add(excerpt_id)
+    return seen
+
+
 def _annotate_excerpts(
     excerpts: list[dict[str, str]],
     *,
     system_prompt: str,
     annotations_path: Path,
     excerpt_limit: int | None,
-) -> tuple[int, int, list[dict[str, str]], dict[str, float]]:
+    skip_excerpt_ids: set[str] | None = None,
+) -> tuple[int, int, list[dict[str, str]], dict[str, float], dict[str, dict[str, float]], int]:
+    """Annotate excerpts, streaming results to JSONL.
+
+    Returns (attempted, written, failures, cost_totals, cost_by_pdf, skipped_resume).
+
+    - ``skip_excerpt_ids``: when provided, excerpts whose ``excerpt_id`` is in
+      this set are skipped (used to resume after a crash without re-spending
+      tokens on already-annotated excerpts).
+    - ``cost_by_pdf``: maps ``source_pdf`` -> cost totals dict, so the caller
+      can print per-PDF cost breakdowns.
+    """
     attempted = 0
     written = 0
+    skipped_resume = 0
     failures: list[dict[str, str]] = []
     cost_totals = _init_cost_totals()
+    cost_by_pdf: dict[str, dict[str, float]] = {}
+    skip_set = skip_excerpt_ids or set()
     with annotations_path.open("a", encoding="utf-8") as handle:
         for excerpt in excerpts:
+            if excerpt["excerpt_id"] in skip_set:
+                skipped_resume += 1
+                continue
             if excerpt_limit is not None and attempted >= excerpt_limit:
                 break
             attempted += 1
@@ -333,6 +375,9 @@ def _annotate_excerpts(
                 f"Section: {excerpt['section']}\n\n"
                 f"Excerpt:\n{excerpt['text'].strip()}"
             )
+            source_pdf = excerpt["source_pdf"]
+            pdf_costs = cost_by_pdf.setdefault(source_pdf, _init_cost_totals())
+            pdf_costs.setdefault("annotation_count", 0.0)
             try:
                 response, call_meta = call_json_model(
                     model=REASONING_MODEL,
@@ -342,6 +387,7 @@ def _annotate_excerpts(
                     include_call_meta=True,
                 )
                 _accumulate_cost(cost_totals, call_meta)
+                _accumulate_cost(pdf_costs, call_meta)
                 annotation = _validate_annotation(response, excerpt_id=excerpt["excerpt_id"])
             except Exception as exc:  # noqa: BLE001
                 failures.append({"excerpt_id": excerpt["excerpt_id"], "error": str(exc)})
@@ -352,7 +398,7 @@ def _annotate_excerpts(
                 continue
             row = {
                 "excerpt_id": excerpt["excerpt_id"],
-                "source_pdf": excerpt["source_pdf"],
+                "source_pdf": source_pdf,
                 "section": excerpt["section"],
                 "excerpt_path": excerpt.get("excerpt_path"),
                 "excerpt_text": excerpt["text"],
@@ -361,8 +407,10 @@ def _annotate_excerpts(
             serialized = json.dumps(row, ensure_ascii=True)
             json.loads(serialized)  # Row-level parseability check.
             handle.write(serialized + "\n")
+            handle.flush()  # Crash-safety: ensure row is on disk before next call.
             written += 1
-    return attempted, written, failures, cost_totals
+            pdf_costs["annotation_count"] += 1
+    return attempted, written, failures, cost_totals, cost_by_pdf, skipped_resume
 
 
 def _list_raw_pdfs(raw_dir: Path, report_limit: int | None) -> list[Path]:
@@ -416,13 +464,26 @@ def main() -> int:
         overwrite=args.overwrite_annotations,
         append=args.append_annotations,
     )
-    attempted, written, failures, cost_totals = _annotate_excerpts(
+    # In append mode, skip excerpts already present in the JSONL so we can
+    # resume after a crash without re-spending tokens.
+    skip_excerpt_ids: set[str] = set()
+    if args.append_annotations and not args.overwrite_annotations:
+        skip_excerpt_ids = _load_existing_excerpt_ids(args.annotations_path)
+        if skip_excerpt_ids:
+            print(
+                f"Resume: skipping {len(skip_excerpt_ids)} excerpt_ids already in "
+                f"{args.annotations_path.name}"
+            )
+    attempted, written, failures, cost_totals, cost_by_pdf, skipped_resume = _annotate_excerpts(
         all_excerpts,
         system_prompt=prompt_text,
         annotations_path=args.annotations_path,
         excerpt_limit=args.excerpt_limit,
+        skip_excerpt_ids=skip_excerpt_ids,
     )
     print(f"Extracted excerpts: {len(all_excerpts)}")
+    if skipped_resume:
+        print(f"Already-annotated excerpts skipped (resume): {skipped_resume}")
     print(f"Annotation attempts: {attempted}")
     print(f"Annotation rows written: {written}")
     print(f"Annotation rows failed: {len(failures)}")
@@ -433,6 +494,22 @@ def main() -> int:
         f"(input_tokens={int(cost_totals['input_tokens'])}, "
         f"output_tokens={int(cost_totals['output_tokens'])})"
     )
+    if cost_by_pdf:
+        print()
+        print("Per-PDF annotation cost:")
+        # Sort by descending total_cost so the most expensive corpora are obvious.
+        sorted_pdfs = sorted(
+            cost_by_pdf.items(),
+            key=lambda kv: kv[1].get("total_cost", 0.0),
+            reverse=True,
+        )
+        for source_pdf, pdf_costs in sorted_pdfs:
+            print(
+                f"  {source_pdf}: ${pdf_costs['total_cost']:.6f} "
+                f"(rows={int(pdf_costs.get('annotation_count', 0))}, "
+                f"input_tokens={int(pdf_costs['input_tokens'])}, "
+                f"output_tokens={int(pdf_costs['output_tokens'])})"
+            )
     if failures:
         preview = failures[:5]
         for item in preview:

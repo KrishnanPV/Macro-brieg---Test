@@ -101,10 +101,12 @@ This file documents the current project structure and the purpose of each file, 
 ### `backend/tools/reasoning_distillation/annotations`
 
 - `backend/tools/reasoning_distillation/annotations/imf_reasoning_units_v1.jsonl` - Distillation annotation dataset artifact.
+- `backend/tools/reasoning_distillation/annotations/imf_reasoning_units_v1.backup.jsonl` - Backup of the prior annotation dataset, preserved before regeneration.
 
 ### `backend/tools/reasoning_distillation/outputs`
 
 - `backend/tools/reasoning_distillation/outputs/reasoning_playbook_v1.md` - Generated reasoning playbook artifact.
+- `backend/tools/reasoning_distillation/outputs/reasoning_playbook_v1.backup.md` - Backup of the prior reasoning playbook, preserved before regeneration.
 
 ### `backend/tools/reasoning_distillation/corpus/imf_article_iv/raw`
 
