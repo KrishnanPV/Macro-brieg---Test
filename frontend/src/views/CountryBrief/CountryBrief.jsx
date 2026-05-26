@@ -520,7 +520,7 @@ export default function CountryBrief() {
     blocks, kpiDataCache, fdiBenchmark, fdiFlowMode, triageResults, error, briefGenerated, newsArticles,
     setSelectedCountry, setStartYear, setEndYear, setFocus,
     generateBrief, resetBrief, openSidebar, setFdiFlowMode,
-    kpiSelectionMode, setKpiSelectionMode, kpiCatalog, selectedKpiIds, toggleKpiId, fetchKpiCatalog,
+    kpiSelectionMode, setKpiSelectionMode, kpiCatalog, selectedKpiIds, toggleKpiId, setSelectedKpiIds, fetchKpiCatalog,
     generationMode, setGenerationMode,
     chartOrderProfile, setChartOrderProfile,
     debugMode, fetchDebugMode, storeTestReport, loadTestReport,
@@ -709,6 +709,19 @@ export default function CountryBrief() {
                 >Manual</button>
               </div>
             </div>
+            {kpiSelectionMode === 'manual' && (() => {
+              const availableIds = kpiCatalog.filter(k => k.available !== false).map(k => k.id)
+              const allSelected = availableIds.length > 0 && availableIds.every(id => selectedKpiIds.includes(id))
+              return (
+                <div className="flex justify-center mb-4">
+                  <button type="button"
+                    onClick={() => setSelectedKpiIds(allSelected ? [] : availableIds)}
+                    disabled={availableIds.length === 0}
+                    className="px-4 py-2 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-800 transition disabled:opacity-40"
+                  >{allSelected ? 'Clear all' : 'Select all'}</button>
+                </div>
+              )
+            })()}
 
             <div className={`rounded-xl border border-slate-200 bg-white p-4 transition-opacity ${
               kpiSelectionMode === 'auto' ? 'opacity-40 pointer-events-none' : ''

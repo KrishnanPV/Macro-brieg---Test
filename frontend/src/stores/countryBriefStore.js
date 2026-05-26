@@ -132,6 +132,7 @@ const useCountryBriefStore = create(
           : [...s.selectedKpiIds, id]
         return { selectedKpiIds: ids }
       }),
+      setSelectedKpiIds: (ids) => set({ selectedKpiIds: Array.from(new Set(ids)) }),
       fetchKpiCatalog: async () => {
         if (get().kpiCatalog.length) return
         try {
