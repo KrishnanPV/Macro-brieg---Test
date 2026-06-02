@@ -109,9 +109,26 @@ def call_json_model(
     use_perplexity: bool = False,
     max_completion_tokens: int = 3000,
     include_call_meta: bool = False,
+    response_schema: dict[str, Any] | None = None,
+    response_schema_name: str = "output",
 ) -> dict[str, Any] | tuple[dict[str, Any], dict[str, Any]]:
-    """Run one chat completion and parse JSON response."""
+    """Run one chat completion and parse JSON response.
+
+    When ``response_schema`` is provided and the OpenAI path is used, the call
+    is constrained via structured outputs (``response_format`` of type
+    ``json_schema`` with ``strict=True``). Perplexity ignores this kwarg.
+    """
     client = _perplexity_client() if use_perplexity else _openai_client()
+    extra_kwargs: dict[str, Any] = {}
+    if response_schema is not None and not use_perplexity:
+        extra_kwargs["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": response_schema_name,
+                "schema": response_schema,
+                "strict": True,
+            },
+        }
     response = client.chat.completions.create(
         model=model,
         messages=[
@@ -120,6 +137,7 @@ def call_json_model(
         ],
         max_completion_tokens=max_completion_tokens,
         **_temperature_kwargs(model),
+        **extra_kwargs,
     )
     call_meta = {
         "model": model,

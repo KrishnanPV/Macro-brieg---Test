@@ -157,3 +157,18 @@ Append-only log for lab prompt updates. Do not edit past entries; add a new entr
 
 **Impact**
 - Country Brief executive summaries now inherit the same causal-language discipline used in the insights generation/evaluation stages.
+
+## [010] 2026-06-02 - hypotheses_groups.md (0.1.0), manifest.yaml
+
+**Change**
+- Added `hypotheses_groups.md` as the system prompt for the new per-signal-group `run_step_groups` entry point in `hypotheses_generator`.
+- Registered the prompt in `manifest.yaml` and bumped `prompt_bundle_version` to `0.1.4`.
+- Prompt enforces: hypotheses-as-research-directions framing, controlled `hypothesis_type` vocabulary, group-level explanation preference, forced null/data hypothesis, neutral search queries, and the rule that the model may say what *might* explain signals but not what *did*.
+
+**Reason**
+- Wire the deterministic `signal_extractor` + `signal_graph` output into a structured hypothesis-generation stage that produces JSON-contract output (hypothesis groups + cross-group dedup + search-plan seed) for downstream news search.
+- Lock the analyst behaviour at the prompt layer so model output stays research-oriented rather than conclusion-oriented.
+
+**Impact**
+- New per-group hypotheses output schema available; legacy per-KPI `run_step` remains untouched.
+- Prompt size remains small and targeted; no other prompt files were modified.
