@@ -60,7 +60,7 @@ This file documents the current project structure and the purpose of each file, 
 - `backend/insights_pipeline/stages/news_researcher.py` - Evidence collection via Perplexity/Sonar for hypothesis validation.
 - `backend/insights_pipeline/stages/insights_generator.py` - Insight and prediction generation stage.
 - `backend/insights_pipeline/stages/evaluator.py` - Quality evaluator stage that emits revision instructions.
-- `backend/insights_pipeline/stages/brief_writer.py` - Reusable brief-writing stage for structured final markdown.
+- `backend/insights_pipeline/stages/brief_writer.py` - Reusable brief-writing stage for structured final markdown (currently unused; country brief uses `backend/country_brief/brief_writer.py`).
 
 ## `backend/services` (shared/global only)
 

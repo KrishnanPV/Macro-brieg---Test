@@ -1,4 +1,12 @@
-"""Brief writing step for insights workflow."""
+"""Brief writing step for insights workflow.
+
+NOTE: Currently unused. The country brief flow uses
+``backend/country_brief/brief_writer.py`` (a streaming writer driven by
+``BRIEF_MODEL``); the dashboard composes markdown deterministically. This module
+is retained as a reusable stub for future workflows that want a one-shot,
+non-streaming brief-writing stage backed by ``call_text_model``. If you wire it
+up, route callers through this stage rather than reintroducing ad-hoc writers.
+"""
 from __future__ import annotations
 
 import json

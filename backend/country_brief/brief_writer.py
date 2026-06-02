@@ -7,7 +7,7 @@ from typing import Any, Iterator
 
 from openai import OpenAI
 
-from backend.config import OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL
+from backend.config import BRIEF_MODEL, OPENAI_API_KEY, OPENAI_BASE_URL
 from backend.country_brief.prompts import build_refine_prompt
 from backend.services.cost_tracker import record_usage
 
@@ -242,7 +242,7 @@ def parse_brief_blocks(raw_text: str) -> list[dict[str, Any]]:
 def stream_brief(messages: list[dict[str, str]]) -> Iterator[tuple[str, str]]:
     """Stream the brief as text deltas, then final full text."""
     client = _get_client()
-    model = OPENAI_MODEL
+    model = BRIEF_MODEL
 
     stream = client.chat.completions.create(
         model=model,
@@ -283,7 +283,7 @@ def stream_refine(
     )
 
     client = _get_client()
-    model = OPENAI_MODEL
+    model = BRIEF_MODEL
 
     stream = client.chat.completions.create(
         model=model,

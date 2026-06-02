@@ -23,6 +23,12 @@ OPENAI_API_KEY = (os.getenv("OPENAI_API_KEY") or "").strip()
 OPENAI_BASE_URL = (os.getenv("OPENAI_BASE_URL") or "").strip()
 OPENAI_MODEL = (os.getenv("OPENAI_MODEL") or DEFAULT_OPENAI_MODEL).strip() or DEFAULT_OPENAI_MODEL
 
+# --- Insights pipeline model selection ---
+_DEFAULT_REASONING_MODEL = "gpt-5.4-2026-03-05"
+_DEFAULT_BRIEF_MODEL = "gpt-5.4-mini-2026-03-17"
+REASONING_MODEL = (os.getenv("REASONING_MODEL") or "").strip() or _DEFAULT_REASONING_MODEL
+BRIEF_MODEL = (os.getenv("BRIEF_MODEL") or "").strip() or _DEFAULT_BRIEF_MODEL
+
 # --- Perplexity (via OpenAI-compatible gateway) ---
 PERPLEXITY_API_KEY = (os.getenv("PERPLEXITY_API_KEY") or "").strip()
 _DEFAULT_PERPLEXITY_URL = "https://api.perplexity.ai"

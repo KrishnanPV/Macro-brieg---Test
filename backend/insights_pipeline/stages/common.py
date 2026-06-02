@@ -7,16 +7,22 @@ from typing import Any
 
 from openai import OpenAI
 
-from backend.config import OPENAI_API_KEY, OPENAI_BASE_URL, PERPLEXITY_API_KEY, PERPLEXITY_URL
+from backend.config import (
+    BRIEF_MODEL,
+    OPENAI_API_KEY,
+    OPENAI_BASE_URL,
+    PERPLEXITY_API_KEY,
+    PERPLEXITY_MODEL,
+    PERPLEXITY_URL,
+    REASONING_MODEL,
+)
 from backend.insights_pipeline.runtime import PROMPTS_DIR, load_prompt_text
 from backend.models.kpi_registry import INSIGHT_LENSES, SPECS_BY_ID
 from backend.services.cost_tracker import estimate_usage_cost, record_usage
 
 log = logging.getLogger(__name__)
 
-REASONING_MODEL = "gpt-5.3-chat-latest"
-BRIEF_MODEL = "gpt-4.1-mini"
-NEWS_MODEL = "sonar"
+NEWS_MODEL = PERPLEXITY_MODEL
 
 
 def ndjson(obj: dict[str, Any]) -> str:
