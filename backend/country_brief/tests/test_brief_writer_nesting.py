@@ -196,6 +196,22 @@ def test_strip_chart_markers_removes_consecutive_markers():
     assert "across the period." in cleaned
 
 
+def test_strip_chart_markers_removes_kpi_prefixed_marker():
+    raw = "Real growth slowed materially [CHART:kpi_12] but diversified."
+    cleaned = _strip_chart_markers(raw)
+    assert "[CHART:" not in cleaned
+    assert "Real growth slowed materially" in cleaned
+    assert "but diversified." in cleaned
+
+
+def test_strip_chart_markers_removes_mixed_prefixed_and_bare_markers():
+    raw = "Inflation eased [CHART:6][CHART:kpi_13] across the period."
+    cleaned = _strip_chart_markers(raw)
+    assert "[CHART:" not in cleaned
+    assert "Inflation eased" in cleaned
+    assert "across the period." in cleaned
+
+
 def test_strip_chart_markers_handles_empty_string():
     assert _strip_chart_markers("") == ""
 
@@ -222,6 +238,29 @@ def test_parse_brief_blocks_strips_chart_markers_from_exec_summary():
     assert "[CHART:" not in exec_block["content"]
     assert "Growth slowed in 2024" in exec_block["content"]
     assert "Non-oil activity remained resilient" in exec_block["content"]
+
+
+def test_parse_brief_blocks_converts_kpi_prefixed_section_marker_to_chart_ref():
+    raw = (
+        "[EXEC_SUMMARY]\n- summary\n[/EXEC_SUMMARY]\n"
+        "[SECTION:Economic Performance & Growth]\n"
+        "Real growth slowed materially [CHART:kpi_12] but diversified.\n"
+        "[/SECTION]\n"
+        "[OUTLOOK]o[/OUTLOOK]\n"
+    )
+
+    blocks = parse_brief_blocks(raw)
+    section = next(b for b in blocks if b["type"] == "section")
+    chart_refs = [c for c in section["children"] if c.get("type") == "chart_ref"]
+
+    assert len(chart_refs) == 1
+    # The numeric id is captured without the kpi_ prefix so it matches the bare
+    # numeric KPI ids used throughout the pipeline.
+    assert chart_refs[0]["kpi_id"] == "12"
+    narrative = " ".join(
+        c["content"] for c in section["children"] if c.get("type") == "narrative"
+    )
+    assert "[CHART:" not in narrative
 
 
 def test_parse_brief_blocks_strips_chart_markers_from_outlook():

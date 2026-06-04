@@ -42,12 +42,14 @@ def _strip_chart_markers(text: str) -> str:
     rendering target inside a ``[SECTION:...]`` body (where
     ``_split_narrative_and_charts`` converts it into a ``chart_ref`` block).
     In ``[EXEC_SUMMARY]`` and ``[OUTLOOK]`` blocks the marker has nowhere to
-    place a chart and ends up as literal ``[CHART:2]`` text in the rendered
-    brief, which is exactly what we saw leaking through in the Saudi run.
+    place a chart and ends up as literal ``[CHART:2]`` (or ``[CHART:kpi_2]``)
+    text in the rendered brief, which is exactly what we saw leaking through.
 
     The model is also instructed (via the prompt) not to emit these markers
     in exec/outlook -- this is a belt-and-suspenders parser-side guarantee
-    so the user never sees a raw marker even if the model misbehaves.
+    so the user never sees a raw marker even if the model misbehaves. The
+    regex tolerates an optional ``kpi_`` prefix so the marker is caught
+    whether the model emits ``[CHART:2]`` or ``[CHART:kpi_2]``.
     """
     if not text:
         return text
@@ -83,7 +85,12 @@ _METRICS_RE = re.compile(r"\[METRICS_RIBBON\](.*?)(?:\[/METRICS_RIBBON\]|" + _NE
 _EXEC_RE = re.compile(r"\[EXEC_SUMMARY\](.*?)(?:\[/EXEC_SUMMARY\]|" + _NEXT_OPEN + ")", re.DOTALL)
 _SECTION_RE = re.compile(r"\[SECTION:([^\]]+)\](.*?)(?:\[/SECTION\]|" + _NEXT_OPEN + ")", re.DOTALL)
 _OUTLOOK_RE = re.compile(r"\[OUTLOOK\](.*?)(?:\[/OUTLOOK\]|" + _NEXT_OPEN + ")", re.DOTALL)
-_CHART_RE = re.compile(r"\[CHART:\s*(\d+)\s*\]", re.IGNORECASE)
+# Accept an optional ``kpi_`` prefix on the id. The OUTPUT_CONTRACT advertises
+# the marker format as the literal ``[CHART:kpi_id]``, and the model frequently
+# takes that placeholder at face value and emits ``[CHART:kpi_12]`` instead of
+# the bare ``[CHART:12]``. We capture only the numeric id so chart_ref ids stay
+# consistent with the bare numeric KPI ids used everywhere else in the pipeline.
+_CHART_RE = re.compile(r"\[CHART:\s*(?:kpi[_\s-]?)?(\d+)\s*\]", re.IGNORECASE)
 _TW_HW_RE = re.compile(r"\*\*Tailwinds\*\*", re.IGNORECASE)
 _BULLET_RE = re.compile(r"^(\s*)([-*])\s+(.*)$")
 
