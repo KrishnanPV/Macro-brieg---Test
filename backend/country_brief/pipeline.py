@@ -551,6 +551,58 @@ def _reorder_section_charts(
     return blocks
 
 
+def _regroup_charts_into_canonical_sections(
+    blocks: list[dict[str, Any]],
+    *,
+    profile: str,
+) -> list[dict[str, Any]]:
+    """Move every chart_ref into the section its KPI is mapped to in the profile.
+
+    Manual selection is deterministic about *which* KPIs render, but the
+    brief-writer LLM decides *which section* it drops each ``[CHART:kpi_id]``
+    marker into, so grouping could drift between runs (e.g. Unemployment landing
+    outside "Labour & Demographics"). This pulls all charts out of the section
+    bodies and re-files each under its canonical section, making grouping
+    deterministic. Charts whose KPI has no canonical mapping, or whose target
+    section is not present in this brief, are returned to their original section.
+    ``_reorder_section_charts`` handles intra-section ordering afterwards.
+    """
+    _, _, section_kpi_map = _get_pipeline_profile(profile)
+    kpi_to_section: dict[str, str] = {}
+    for title, kpis in section_kpi_map:
+        for kid in kpis:
+            kpi_to_section[str(kid)] = title
+
+    section_blocks: dict[str, dict[str, Any]] = {}
+    for block in blocks:
+        if block.get("type") == "section":
+            section_blocks.setdefault(block.get("title"), block)
+
+    # Pull every chart_ref out of the section bodies, remembering its origin.
+    pulled: list[tuple[Any, dict[str, Any]]] = []
+    for block in blocks:
+        if block.get("type") != "section":
+            continue
+        kept: list[dict[str, Any]] = []
+        for child in block.get("children") or []:
+            if child.get("type") == "chart_ref":
+                pulled.append((block.get("title"), child))
+            else:
+                kept.append(child)
+        block["children"] = kept
+
+    for origin_title, chart in pulled:
+        kid = str(chart.get("kpi_id", ""))
+        target = section_blocks.get(kpi_to_section.get(kid, ""))
+        if target is None:
+            target = section_blocks.get(origin_title)
+        if target is None:
+            continue
+        target.setdefault("children", []).append(chart)
+
+    return blocks
+
+
 def _ensure_required_section_charts(
     blocks: list[dict[str, Any]],
     *,
@@ -928,9 +980,11 @@ def _run_pipeline_impl(
             f"{exhibit_lines}\n"
             "- When you state a chart-sourced number in prose, append the exhibit label "
             "in parentheses, e.g. 'real GDP grew 3.1% (1B)'. Just the code, no 'Exhibit'.\n"
-            "- Keep [CHART:kpi_id] markers inside [SECTION:...] bodies only — they are "
-            "chart-placement directives, not prose references. Avoid them in "
-            "[EXEC_SUMMARY] and [OUTLOOK]; the parser strips them there anyway.\n\n"
+            "- Keep [CHART:<numeric_kpi_id>] markers (e.g. [CHART:12], using the KPI's "
+            "actual numeric id — never the literal 'kpi_id' or a 'kpi_' prefix) inside "
+            "[SECTION:...] bodies only — they are chart-placement directives, not prose "
+            "references. Avoid them in [EXEC_SUMMARY] and [OUTLOOK]; the parser strips "
+            "them there anyway.\n\n"
         )
 
     injection += (
@@ -997,6 +1051,7 @@ def _run_pipeline_impl(
     )
     fallback_chart_ids = [kid for kid in available_ids if kid in ids_with_data]
     blocks = _ensure_chart_blocks(blocks, preferred_chart_ids=fallback_chart_ids)
+    blocks = _regroup_charts_into_canonical_sections(blocks, profile=profile)
     _assign_exhibit_labels(blocks, exhibit_map)
     blocks = _reorder_section_charts(blocks, profile=profile)
     exhibit_issues = _check_exhibit_label_sequence(blocks)

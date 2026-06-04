@@ -34,26 +34,41 @@ def _strip_confidence_tags(text: str) -> str:
 _TRAILING_WS_RE = re.compile(r"[ \t]+\n")
 _MULTI_BLANK_RE = re.compile(r"\n{3,}")
 
+# Catch-all for *any* chart token, including the literal placeholder
+# ``[CHART:kpi_id]`` (no numeric id) that the model copies verbatim from the
+# OUTPUT_CONTRACT's advertised format. ``_CHART_RE`` only matches markers that
+# carry a real numeric id (those are the ones we can place as a chart); this
+# broad pattern is used purely to scrub residue so no ``[CHART:...]`` text ever
+# survives into the rendered brief, regardless of what the model emitted.
+_CHART_ANY_RE = re.compile(r"\[CHART:[^\]]*\]", re.IGNORECASE)
+# A bullet line whose only content was a chart token (e.g. ``- [CHART:kpi_id]``)
+# collapses to an empty bullet once the token is removed; drop the whole row.
+_EMPTY_BULLET_RE = re.compile(r"^[ \t]*[-*][ \t]*$\n?", re.MULTILINE)
+
 
 def _strip_chart_markers(text: str) -> str:
-    """Remove ``[CHART:N]`` tokens and clean up the whitespace they leave behind.
+    """Remove every ``[CHART:...]`` token and clean up the residue it leaves.
 
     ``[CHART:kpi_id]`` is a chart-placement directive that only has a
     rendering target inside a ``[SECTION:...]`` body (where
-    ``_split_narrative_and_charts`` converts it into a ``chart_ref`` block).
-    In ``[EXEC_SUMMARY]`` and ``[OUTLOOK]`` blocks the marker has nowhere to
-    place a chart and ends up as literal ``[CHART:2]`` (or ``[CHART:kpi_2]``)
-    text in the rendered brief, which is exactly what we saw leaking through.
+    ``_split_narrative_and_charts`` converts numeric markers into ``chart_ref``
+    blocks). Anywhere else -- ``[EXEC_SUMMARY]``, ``[OUTLOOK]``, or a section's
+    narrative text after the numeric markers have been split out -- a chart
+    token has nowhere to place a chart and would otherwise leak as literal
+    text in the rendered brief.
 
-    The model is also instructed (via the prompt) not to emit these markers
-    in exec/outlook -- this is a belt-and-suspenders parser-side guarantee
-    so the user never sees a raw marker even if the model misbehaves. The
-    regex tolerates an optional ``kpi_`` prefix so the marker is caught
-    whether the model emits ``[CHART:2]`` or ``[CHART:kpi_2]``.
+    This is a belt-and-suspenders parser-side guarantee so the user never sees
+    a raw marker even if the model misbehaves. It scrubs the broad
+    ``[CHART:...]`` form, which covers all three failure modes observed in the
+    wild: the bare numeric ``[CHART:2]``, the prefixed ``[CHART:kpi_2]``, and
+    the verbatim placeholder ``[CHART:kpi_id]`` (no numeric id at all). A
+    bullet that held nothing but the token is dropped so no empty bullet rows
+    remain.
     """
     if not text:
         return text
-    cleaned = _CHART_RE.sub("", text)
+    cleaned = _CHART_ANY_RE.sub("", text)
+    cleaned = _EMPTY_BULLET_RE.sub("", cleaned)
     cleaned = _TRAILING_WS_RE.sub("\n", cleaned)
     cleaned = _MULTI_BLANK_RE.sub("\n\n", cleaned)
     return cleaned.strip()
@@ -191,7 +206,9 @@ def _split_narrative_and_charts(body: str) -> list[dict[str, Any]]:
     parts = _CHART_RE.split(body)
     for i, part in enumerate(parts):
         if i % 2 == 0:
-            text = part.strip()
+            # Scrub any residual non-numeric chart token (e.g. the verbatim
+            # ``[CHART:kpi_id]`` placeholder) that split() left in the prose.
+            text = _strip_chart_markers(part)
             if text:
                 blocks.append({"type": "narrative", "content": text})
         else:

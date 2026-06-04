@@ -212,6 +212,26 @@ def test_strip_chart_markers_removes_mixed_prefixed_and_bare_markers():
     assert "across the period." in cleaned
 
 
+def test_strip_chart_markers_removes_verbatim_placeholder():
+    raw = "Population is expanding [CHART:kpi_id] which lifts demand."
+    cleaned = _strip_chart_markers(raw)
+    assert "[CHART:" not in cleaned
+    assert "Population is expanding" in cleaned
+    assert "which lifts demand." in cleaned
+
+
+def test_strip_chart_markers_drops_bullet_that_was_only_a_placeholder():
+    raw = (
+        "- **Demand keeps rising.** Consumption stays firm.\n"
+        "- [CHART:kpi_id]\n"
+    )
+    cleaned = _strip_chart_markers(raw)
+    assert "[CHART:" not in cleaned
+    assert "Demand keeps rising." in cleaned
+    # The placeholder-only bullet must not leave a dangling empty bullet behind.
+    assert not any(line.strip() in {"-", "*"} for line in cleaned.splitlines())
+
+
 def test_strip_chart_markers_handles_empty_string():
     assert _strip_chart_markers("") == ""
 
@@ -261,6 +281,27 @@ def test_parse_brief_blocks_converts_kpi_prefixed_section_marker_to_chart_ref():
         c["content"] for c in section["children"] if c.get("type") == "narrative"
     )
     assert "[CHART:" not in narrative
+
+
+def test_parse_brief_blocks_drops_verbatim_placeholder_in_section():
+    raw = (
+        "[EXEC_SUMMARY]\n- summary\n[/EXEC_SUMMARY]\n"
+        "[SECTION:Labour Market & Domestic Demand]\n"
+        "- **Population growth lifts demand.** Consumption stays firm.\n"
+        "- [CHART:kpi_id]\n"
+        "[/SECTION]\n"
+        "[OUTLOOK]o[/OUTLOOK]\n"
+    )
+
+    blocks = parse_brief_blocks(raw)
+    section = next(b for b in blocks if b["type"] == "section")
+
+    assert not any(c.get("type") == "chart_ref" for c in section["children"])
+    narrative = " ".join(
+        c["content"] for c in section["children"] if c.get("type") == "narrative"
+    )
+    assert "[CHART:" not in narrative
+    assert "Population growth lifts demand." in narrative
 
 
 def test_parse_brief_blocks_strips_chart_markers_from_outlook():

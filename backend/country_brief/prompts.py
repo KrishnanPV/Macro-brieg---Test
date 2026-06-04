@@ -114,7 +114,13 @@ _CORE_CONTRACT = {
         "section": {"required": True, "start": "[SECTION:Title]", "end": "[/SECTION]"},
         "outlook": {"required": True, "start": "[OUTLOOK]", "end": "[/OUTLOOK]"},
         "chart_ref": {
-            "format": "[CHART:kpi_id]",
+            "format": "[CHART:<numeric_kpi_id>]",
+            "example": "[CHART:12]",
+            "note": (
+                "Substitute the KPI's actual numeric id from DATA_CONTEXT. Never "
+                "emit the literal text 'kpi_id' or a 'kpi_' prefix -- write "
+                "'[CHART:12]', not '[CHART:kpi_id]' or '[CHART:kpi_12]'."
+            ),
             "max_per_kpi": 1,
             "allowed_in": ["section"],
             "forbidden_in": ["executive_summary", "outlook"],
@@ -122,9 +128,10 @@ _CORE_CONTRACT = {
     },
     "prose_reference_rule": (
         "To reference a chart's data in prose, append the exhibit label in "
-        "parentheses, e.g. '(1A)'. Never write '[CHART:kpi_id]' in prose, in "
-        "[EXEC_SUMMARY], or in [OUTLOOK] -- '[CHART:kpi_id]' is a chart-placement "
-        "directive that may appear only inside a [SECTION:...] body."
+        "parentheses, e.g. '(1A)'. Never write a chart-placement directive such "
+        "as '[CHART:12]' in prose, in [EXEC_SUMMARY], or in [OUTLOOK] -- it may "
+        "appear only inside a [SECTION:...] body, and always with the KPI's "
+        "actual numeric id (e.g. '[CHART:12]')."
     ),
     "section_rules": {
         "use_exact_titles": True,
@@ -492,7 +499,8 @@ def build_brief_prompt(
         manual_block = (
             "\n\nMANUAL KPI SELECTION is active.\n"
             "- Every selected KPI with available data must appear in the brief body.\n"
-            "- Include one [CHART:kpi_id] marker for each selected KPI.\n"
+            "- Include one [CHART:<numeric_kpi_id>] marker for each selected KPI, "
+            "using its actual numeric id (e.g. [CHART:12]).\n"
         )
 
     fdi_benchmark_block = ""
@@ -519,7 +527,8 @@ def build_brief_prompt(
         "INSTRUCTIONS:\n"
         "1. Follow OUTPUT_CONTRACT_JSON exactly; treat it as the single format authority.\n"
         "2. Keep each section concise and insight-first: what changed, why, and what follows.\n"
-        "3. Use [CHART:kpi_id] markers where the narrative references that KPI trend.\n"
+        "3. Use [CHART:<numeric_kpi_id>] markers (e.g. [CHART:12], using the KPI's "
+        "actual numeric id) where the narrative references that KPI trend.\n"
         "4. Use annual references and avoid quarter-by-quarter narration unless essential.\n"
     )
 
