@@ -37,6 +37,25 @@ _GCC_CODES = frozenset({"SAU", "ARE", "QAT", "KWT", "BHR", "OMN"})
 _OIL_NON_OIL_KPI = "2"
 _TRADE_KPI = "13"
 
+# DATA-DRIVEN OIL GATING (see docs/decisions.md) — replaces _GCC_CODES as the
+# display gate for the 1A GDP-growth title and the 3A Brent overlay. A country
+# is treated as an "oil economy" iff Oxford returns an oil/non-oil real-GDP
+# split for it (KPI 2 / KPI 12 carry these series), generalizing beyond GCC.
+_OIL_SPLIT_INDICATORS = ("oil, real", "non-oil, real")
+
+
+def _has_oil_split(results_raw: list[dict[str, Any]]) -> bool:
+    """Return True if the fetched results contain a renderable oil/non-oil split."""
+    for r in results_raw:
+        if str(r.get("kpi_id")) not in {"2", "12"}:
+            continue
+        for s in (r.get("series") or []) + (r.get("series_annual") or []):
+            ind = str(s.get("indicator", "")).lower()
+            if any(tok in ind for tok in _OIL_SPLIT_INDICATORS):
+                if any(p.get("value") is not None for p in (s.get("points") or [])):
+                    return True
+    return False
+
 # In-memory cache so the frontend can re-slice FDI benchmarks by year
 # without re-fetching from Oxford Economics. Keyed by a random UUID.
 _fdi_benchmark_cache: dict[str, dict[str, Any]] = {}
@@ -680,10 +699,22 @@ def _run_pipeline_impl(
         timerange_a=timerange,
         dual_fetch=True,
     )
-    # Oil price overlay for KPI 13 (Trade — Exports & Imports).
-    # Only fetched when the Trade KPI is in scope; the overlay never appears
-    # on any other chart.
-    if _TRADE_KPI in available_ids:
+    # DATA-DRIVEN OIL GATING (see docs/decisions.md): a country counts as an
+    # "oil economy" iff Oxford returns an oil/non-oil real-GDP split for it.
+    # This single signal gates the 1A GDP-growth title and the 3A Brent overlay.
+    has_oil_split = _has_oil_split([r.model_dump() for r in fetch_resp.results])
+
+    # 1A title: without an oil/non-oil split, KPI 12 only plots total real GDP
+    # growth, so drop the "(Total / Oil / Non-Oil)" qualifier from its name.
+    if not has_oil_split:
+        for r in fetch_resp.results:
+            if r.kpi_id == "12":
+                r.kpi_name = "Real GDP Growth"
+
+    # Oil price overlay for KPI 13 (Trade — Exports & Imports). Only fetched
+    # when the Trade KPI is in scope AND the country is an oil economy; the
+    # overlay never appears on any other chart.
+    if _TRADE_KPI in available_ids and has_oil_split:
         yield _ndjson({"type": "status", "content": "Fetching Brent oil price overlay..."})
         try:
             oil_overlay = fetch_oil_price_data(
