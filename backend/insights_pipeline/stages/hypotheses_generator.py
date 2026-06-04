@@ -13,6 +13,7 @@ Two entry points live here:
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from backend.insights_pipeline.stages.common import (
@@ -21,6 +22,8 @@ from backend.insights_pipeline.stages.common import (
     get_kpi_context,
     load_prompt,
 )
+
+log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -58,6 +61,10 @@ _STANDARD_WARNING: str = (
 # Locked JSON schema for OpenAI structured outputs (strict mode)
 # ---------------------------------------------------------------------------
 
+_MAX_EVIDENCE_ITEMS: int = 3
+_MAX_NEUTRAL_QUERIES: int = 3
+
+
 def _hypothesis_object_schema() -> dict[str, Any]:
     return {
         "type": "object",
@@ -70,7 +77,6 @@ def _hypothesis_object_schema() -> dict[str, Any]:
             "explains_signals",
             "does_not_explain",
             "expected_evidence",
-            "contradictory_evidence",
             "neutral_search_queries",
             "search_priority",
             "brief_use_before_evidence",
@@ -82,9 +88,16 @@ def _hypothesis_object_schema() -> dict[str, Any]:
             "mechanism": {"type": "string"},
             "explains_signals": {"type": "array", "items": {"type": "string"}},
             "does_not_explain": {"type": "array", "items": {"type": "string"}},
-            "expected_evidence": {"type": "array", "items": {"type": "string"}},
-            "contradictory_evidence": {"type": "array", "items": {"type": "string"}},
-            "neutral_search_queries": {"type": "array", "items": {"type": "string"}},
+            "expected_evidence": {
+                "type": "array",
+                "items": {"type": "string"},
+                "maxItems": _MAX_EVIDENCE_ITEMS,
+            },
+            "neutral_search_queries": {
+                "type": "array",
+                "items": {"type": "string"},
+                "maxItems": _MAX_NEUTRAL_QUERIES,
+            },
             "search_priority": {"type": "string", "enum": list(SEARCH_PRIORITIES)},
             "brief_use_before_evidence": {
                 "type": "string",
@@ -281,11 +294,6 @@ def _make_null_hypothesis(group_id: str, signal_ids: list[str]) -> dict[str, Any
             "prior-period base unusually high or low",
             "revisions to historical data",
         ],
-        "contradictory_evidence": [
-            "no recent methodology change",
-            "no revision history",
-            "movement persists across multiple unrelated indicators",
-        ],
         "neutral_search_queries": [],
         "search_priority": "low",
         "brief_use_before_evidence": _BRIEF_USE_LITERAL,
@@ -339,9 +347,10 @@ def _validate_hypothesis(
         "mechanism": str(hyp.get("mechanism") or ""),
         "explains_signals": explains,
         "does_not_explain": does_not,
-        "expected_evidence": _str_list(hyp.get("expected_evidence")),
-        "contradictory_evidence": _str_list(hyp.get("contradictory_evidence")),
-        "neutral_search_queries": _str_list(hyp.get("neutral_search_queries")),
+        "expected_evidence": _str_list(hyp.get("expected_evidence"))[:_MAX_EVIDENCE_ITEMS],
+        "neutral_search_queries": _str_list(hyp.get("neutral_search_queries"))[
+            :_MAX_NEUTRAL_QUERIES
+        ],
         "search_priority": priority,
         "brief_use_before_evidence": _BRIEF_USE_LITERAL,
     }
@@ -490,11 +499,41 @@ def _post_validate_document(
     }
 
 
+def _trim_signal_for_prompt(sig: dict[str, Any]) -> dict[str, Any]:
+    """Project a Signal into the minimal payload the hypothesis LLM needs.
+
+    Drops fields that are noise for hypothesis generation:
+    - country (same for every signal in the call)
+    - frequency, unit (not used for direction/magnitude reasoning)
+    - start_value, end_value, abs_change (pct_change captures size cleanly)
+    - period_length_months (derivable from period)
+    - metrics (per-type numerics like z_score / pivot_date; consumed downstream
+      by signal_event_linker.link from the raw selected_signals list, NOT by
+      the hypothesis LLM)
+
+    Per-signal token cost: ~200 -> ~50. With ~210 signals across ~7 groups
+    this is the single biggest input-cost lever for this stage.
+    """
+    try:
+        pct_change = round(float(sig.get("pct_change") or 0.0), 3)
+    except (TypeError, ValueError):
+        pct_change = 0.0
+    return {
+        "id": str(sig.get("id") or ""),
+        "signal_type": str(sig.get("signal_type") or ""),
+        "kpi": str(sig.get("kpi") or ""),
+        "kpi_id": str(sig.get("kpi_id") or ""),
+        "direction": str(sig.get("direction") or ""),
+        "pct_change": pct_change,
+        "period": f"{sig.get('period_start') or ''}..{sig.get('period_end') or ''}",
+    }
+
+
 def _summarize_attached_group_for_prompt(group: dict[str, Any]) -> dict[str, Any]:
     """Trim each attached group into the minimal JSON payload sent to the LLM.
 
-    Keeps every field the prompt needs while dropping any unexpected extras so
-    the prompt size stays bounded.
+    Each embedded signal is projected through ``_trim_signal_for_prompt`` so
+    the prompt only carries fields the hypothesis LLM actually reasons about.
     """
     return {
         "group_id": str(group.get("group_id") or ""),
@@ -506,7 +545,9 @@ def _summarize_attached_group_for_prompt(group: dict[str, Any]) -> dict[str, Any
             {"kpi_id": str(m.get("kpi_id") or ""), "role": str(m.get("role") or "")}
             for m in group.get("members") or []
         ],
-        "signals": list(group.get("signals") or []),
+        "signals": [
+            _trim_signal_for_prompt(s) for s in (group.get("signals") or [])
+        ],
     }
 
 
@@ -558,11 +599,39 @@ def run_step_groups(
         include_call_meta=True,
         response_schema=HYPOTHESES_OUTPUT_SCHEMA,
         response_schema_name="hypotheses_document",
-        max_completion_tokens=6000,
+        # 6000 (original): routinely truncated -> JSON parse failure -> empty
+        #                  hypothesis document -> empty news plan -> degraded brief.
+        # 12000 (first bump): worked for SAU (out=11,514) but UAE saturated at
+        #                     12,000 exactly (finish_reason=length). The
+        #                     QuantumBlack OpenAI gateway does NOT expose
+        #                     completion_tokens_details.reasoning_tokens, so
+        #                     reasoning and visible JSON share this single cap
+        #                     opaquely. 12,000 is right at the threshold for an
+        #                     8-group brief with 3-6 hypotheses each.
+        # 16000 (current): ~33% headroom above the observed borderline run
+        #                  (SAU at 11,514) and well above the saturated run
+        #                  (ARE at 12,000). Worst-case cost delta is ~$0.06 at
+        #                  gpt-5.4 output pricing.
+        max_completion_tokens=16000,
     )
+
+    if isinstance(parsed, dict) and parsed.get("_truncated"):
+        log.error(
+            "insights_pipeline.hypotheses_generator.groups response truncated: "
+            "finish_reason=%s reasoning_tokens=%s visible_tokens=%s -- "
+            "raise max_completion_tokens or lower reasoning_effort. "
+            "Hypothesis document will degrade to null hypotheses only and "
+            "deep-mode news flow will be empty.",
+            parsed.get("_finish_reason"),
+            call_meta.get("reasoning_tokens"),
+            call_meta.get("visible_tokens"),
+        )
 
     if not isinstance(parsed, dict) or "raw_text" in parsed:
         parsed = {}
+    else:
+        # Strip internal flags so they never leak into the post-validated document.
+        parsed = {k: v for k, v in parsed.items() if not k.startswith("_")}
 
     document = _post_validate_document(
         parsed,

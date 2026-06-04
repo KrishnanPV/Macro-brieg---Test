@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 from openai import OpenAI
@@ -85,6 +86,75 @@ def _strip_fence(text: str) -> str:
     return "\n".join(lines).strip()
 
 
+_FENCED_JSON_RE = re.compile(r"```(?:json|JSON)?\s*(.+?)```", re.DOTALL)
+
+
+def _extract_embedded_json(text: str) -> str | None:
+    """Best-effort recovery for prose responses that hide JSON inside them.
+
+    Many LLMs (notably Perplexity Sonar without ``response_format``) will
+    return text like::
+
+        Here are the events I found:
+        ```json
+        [{"title": "..."}, ...]
+        ```
+        Let me know if you need more!
+
+    or::
+
+        I found 8 events:
+        {"events": [{...}, {...}]}
+
+    Strict ``json.loads`` rejects all of these. This helper tries three
+    increasingly liberal extraction strategies and returns the first one that
+    parses cleanly:
+
+    1. Content inside the first ```json ... ``` fence anywhere in the text.
+    2. The substring from the first ``{`` to the last ``}``.
+    3. The substring from the first ``[`` to the last ``]`` (wrapped as
+       ``{"events": [...]}`` for downstream consumers that expect a dict).
+
+    Returns the recovered JSON *text* (not the parsed object) so the caller
+    can keep its existing parse/validate flow, or ``None`` if no candidate
+    parses.
+    """
+    if not text:
+        return None
+
+    fence_match = _FENCED_JSON_RE.search(text)
+    if fence_match:
+        candidate = fence_match.group(1).strip()
+        try:
+            json.loads(candidate)
+            return candidate
+        except json.JSONDecodeError:
+            pass
+
+    first_brace = text.find("{")
+    last_brace = text.rfind("}")
+    if first_brace >= 0 and last_brace > first_brace:
+        candidate = text[first_brace : last_brace + 1]
+        try:
+            json.loads(candidate)
+            return candidate
+        except json.JSONDecodeError:
+            pass
+
+    first_bracket = text.find("[")
+    last_bracket = text.rfind("]")
+    if first_bracket >= 0 and last_bracket > first_bracket:
+        candidate = text[first_bracket : last_bracket + 1]
+        try:
+            parsed_list = json.loads(candidate)
+        except json.JSONDecodeError:
+            return None
+        if isinstance(parsed_list, list):
+            return json.dumps({"events": parsed_list})
+
+    return None
+
+
 def _openai_client() -> OpenAI:
     if not OPENAI_API_KEY:
         raise RuntimeError("OPENAI_API_KEY is not configured.")
@@ -114,20 +184,30 @@ def call_json_model(
 ) -> dict[str, Any] | tuple[dict[str, Any], dict[str, Any]]:
     """Run one chat completion and parse JSON response.
 
-    When ``response_schema`` is provided and the OpenAI path is used, the call
-    is constrained via structured outputs (``response_format`` of type
-    ``json_schema`` with ``strict=True``). Perplexity ignores this kwarg.
+    When ``response_schema`` is provided, the call is constrained via
+    structured outputs (``response_format`` of type ``json_schema``). On
+    OpenAI the request adds ``strict=True``; Perplexity Sonar accepts the
+    same ``json_schema`` shape but does NOT accept ``strict`` (per
+    https://docs.perplexity.ai/docs/agent-api/output-control).
+
+    If the model still returns text that is not pure JSON (e.g. wrapping
+    its JSON in a code fence or sandwiching it between prose/citation
+    blocks, which Sonar does fairly often), the response is run through
+    :func:`_extract_embedded_json` before the wrapped-text fallback. This
+    salvages otherwise-billed-but-useless calls.
     """
     client = _perplexity_client() if use_perplexity else _openai_client()
     extra_kwargs: dict[str, Any] = {}
-    if response_schema is not None and not use_perplexity:
+    if response_schema is not None:
+        json_schema_body: dict[str, Any] = {
+            "name": response_schema_name,
+            "schema": response_schema,
+        }
+        if not use_perplexity:
+            json_schema_body["strict"] = True
         extra_kwargs["response_format"] = {
             "type": "json_schema",
-            "json_schema": {
-                "name": response_schema_name,
-                "schema": response_schema,
-                "strict": True,
-            },
+            "json_schema": json_schema_body,
         }
     response = client.chat.completions.create(
         model=model,
@@ -139,25 +219,88 @@ def call_json_model(
         **_temperature_kwargs(model),
         **extra_kwargs,
     )
+    finish_reason = getattr(response.choices[0], "finish_reason", None)
+    completion_details = getattr(response.usage, "completion_tokens_details", None)
+    reasoning_tokens = int(getattr(completion_details, "reasoning_tokens", 0) or 0)
+    total_completion_tokens = int(getattr(response.usage, "completion_tokens", 0) or 0)
+    visible_tokens = max(total_completion_tokens - reasoning_tokens, 0)
     call_meta = {
         "model": model,
+        "finish_reason": finish_reason,
+        "reasoning_tokens": reasoning_tokens,
+        "visible_tokens": visible_tokens,
         **estimate_usage_cost(model, response.usage),
     }
     record_usage(model, response.usage, caller=caller)
     text = _strip_fence(response.choices[0].message.content or "")
+
+    truncated = finish_reason == "length"
+    if truncated:
+        log.warning(
+            "%s hit max_completion_tokens cap (reasoning_tokens=%d, visible_tokens=%d, "
+            "cap=%d); response truncated -- raise max_completion_tokens or lower reasoning_effort",
+            caller,
+            reasoning_tokens,
+            visible_tokens,
+            max_completion_tokens,
+        )
+
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError:
-        log.warning("%s returned non-JSON output; falling back to wrapped text.", caller)
-        fallback = {"raw_text": text}
-        if include_call_meta:
-            return fallback, call_meta
-        return fallback
+        # Truncation is the only case where embedded-JSON recovery is unlikely
+        # to help (the trailing brace/bracket is gone), but we still try -- a
+        # truncated array with a partial last element won't recover, but a
+        # truncated string mid-prose with an earlier complete JSON block might.
+        recovered_text = _extract_embedded_json(text)
+        if recovered_text is not None:
+            try:
+                parsed = json.loads(recovered_text)
+            except json.JSONDecodeError:
+                recovered_text = None
+        if recovered_text is None:
+            if truncated:
+                log.error(
+                    "%s returned non-JSON output because the response was truncated "
+                    "(finish_reason=length, reasoning_tokens=%d, visible_tokens=%d).",
+                    caller,
+                    reasoning_tokens,
+                    visible_tokens,
+                )
+            else:
+                log.warning(
+                    "%s returned non-JSON output (finish_reason=%s); falling back to "
+                    "wrapped text.",
+                    caller,
+                    finish_reason,
+                )
+            fallback: dict[str, Any] = {
+                "raw_text": text,
+                "_truncated": truncated,
+                "_finish_reason": finish_reason,
+            }
+            if include_call_meta:
+                return fallback, call_meta
+            return fallback
+        log.info(
+            "%s recovered JSON from prose response via embedded-extraction "
+            "(finish_reason=%s).",
+            caller,
+            finish_reason,
+        )
     if isinstance(parsed, dict):
+        if truncated:
+            # Surface truncation flag on parsed dicts too so callers can detect
+            # partial-but-valid JSON (rare, but possible with reasoning models).
+            parsed.setdefault("_truncated", True)
+            parsed.setdefault("_finish_reason", finish_reason)
         if include_call_meta:
             return parsed, call_meta
         return parsed
-    wrapped = {"items": parsed}
+    wrapped: dict[str, Any] = {"items": parsed}
+    if truncated:
+        wrapped["_truncated"] = True
+        wrapped["_finish_reason"] = finish_reason
     if include_call_meta:
         return wrapped, call_meta
     return wrapped

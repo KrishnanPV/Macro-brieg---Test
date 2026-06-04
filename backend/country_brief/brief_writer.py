@@ -31,6 +31,32 @@ def _strip_confidence_tags(text: str) -> str:
     return _CONFIDENCE_LINE_RE.sub("", text)
 
 
+_TRAILING_WS_RE = re.compile(r"[ \t]+\n")
+_MULTI_BLANK_RE = re.compile(r"\n{3,}")
+
+
+def _strip_chart_markers(text: str) -> str:
+    """Remove ``[CHART:N]`` tokens and clean up the whitespace they leave behind.
+
+    ``[CHART:kpi_id]`` is a chart-placement directive that only has a
+    rendering target inside a ``[SECTION:...]`` body (where
+    ``_split_narrative_and_charts`` converts it into a ``chart_ref`` block).
+    In ``[EXEC_SUMMARY]`` and ``[OUTLOOK]`` blocks the marker has nowhere to
+    place a chart and ends up as literal ``[CHART:2]`` text in the rendered
+    brief, which is exactly what we saw leaking through in the Saudi run.
+
+    The model is also instructed (via the prompt) not to emit these markers
+    in exec/outlook -- this is a belt-and-suspenders parser-side guarantee
+    so the user never sees a raw marker even if the model misbehaves.
+    """
+    if not text:
+        return text
+    cleaned = _CHART_RE.sub("", text)
+    cleaned = _TRAILING_WS_RE.sub("\n", cleaned)
+    cleaned = _MULTI_BLANK_RE.sub("\n\n", cleaned)
+    return cleaned.strip()
+
+
 def _get_client() -> OpenAI:
     if not OPENAI_API_KEY:
         raise RuntimeError("OPENAI_API_KEY is not configured.")
@@ -208,7 +234,9 @@ def parse_brief_blocks(raw_text: str) -> list[dict[str, Any]]:
 
     m = _EXEC_RE.search(raw_text)
     if m:
-        exec_content = _normalize_bullet_nesting(_strip_confidence_tags(m.group(1).strip()))
+        exec_content = _normalize_bullet_nesting(
+            _strip_chart_markers(_strip_confidence_tags(m.group(1).strip()))
+        )
         blocks.append({"type": "executive_summary", "content": exec_content})
 
     global_seen_charts: set[str] = set()
@@ -230,23 +258,41 @@ def parse_brief_blocks(raw_text: str) -> list[dict[str, Any]]:
 
     m = _OUTLOOK_RE.search(raw_text)
     if m:
-        blocks.append({"type": "outlook", "content": _strip_confidence_tags(m.group(1).strip())})
+        blocks.append({
+            "type": "outlook",
+            "content": _strip_chart_markers(_strip_confidence_tags(m.group(1).strip())),
+        })
     else:
         outlook_content = _extract_outlook_fallback(raw_text)
         if outlook_content:
-            blocks.append({"type": "outlook", "content": _strip_confidence_tags(outlook_content)})
+            blocks.append({
+                "type": "outlook",
+                "content": _strip_chart_markers(_strip_confidence_tags(outlook_content)),
+            })
 
     return blocks
 
 
 def stream_brief(messages: list[dict[str, str]]) -> Iterator[tuple[str, str]]:
-    """Stream the brief as text deltas, then final full text."""
+    """Stream the brief as text deltas, then final full text.
+
+    ``max_completion_tokens`` is set explicitly to give the gpt-5.4-mini
+    reasoning model enough head-room for both its hidden reasoning trace and
+    the visible markdown brief. The QuantumBlack OpenAI gateway lumps
+    reasoning tokens and visible tokens into one usage counter without
+    exposing the split, so a too-small cap silently starves the visible
+    output - the model emits ``[SECTION:...][/SECTION]`` skeletons with no
+    narrative body. 8000 tokens comfortably covers an 8-section deep-mode
+    brief at ~2,500-3,000 visible tokens plus the reasoning the model needs
+    to satisfy the EXHIBIT MAP + CITATION POLICY constraints.
+    """
     client = _get_client()
     model = BRIEF_MODEL
 
     stream = client.chat.completions.create(
         model=model,
         messages=messages,
+        max_completion_tokens=8000,
         stream=True,
         stream_options={"include_usage": True},
         **_model_kwargs(model),

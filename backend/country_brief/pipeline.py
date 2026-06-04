@@ -227,6 +227,20 @@ def _get_pipeline_profile(profile: str) -> tuple[
 
 _SRC_CITATION_RE = re.compile(r"\[src:(\d+)\]", re.IGNORECASE)
 
+# Subset of `signal_interpretation` keys actually referenced by the brief-writer
+# prompt. The remaining keys (hypothesis_document, planned_queries,
+# news_by_query, signal_event_links, unlinked_signals, unlinked_events) are
+# internal pipeline plumbing; shipping them into the writer's JSON injection
+# pushes reasoning-token-heavy models past their completion budget and produces
+# briefs with empty body sections.
+_WRITER_INTERPRETATION_KEYS: tuple[str, ...] = (
+    "period_highlight",
+    "themes",
+    "noise_signals",
+    "cross_kpi_connections",
+    "composition_shifts",
+)
+
 
 def _required_section_titles(
     ids_with_data: set[str],
@@ -733,6 +747,19 @@ def run_pipeline(
         deep_analysis=deep_analysis,
     )
 
+    if deep_analysis:
+        hypothesis_doc = signal_interpretation.get("hypothesis_document") or {}
+        hypothesis_groups = hypothesis_doc.get("hypothesis_groups") or []
+        planned_queries = signal_interpretation.get("planned_queries") or []
+        news_by_query = signal_interpretation.get("news_by_query") or []
+        log.info(
+            "Deep-mode counts | hypothesis_groups=%d planned_queries=%d events=%d articles=%d",
+            len(hypothesis_groups),
+            len(planned_queries),
+            len(news_by_query),
+            len(articles_flat),
+        )
+
     yield _ndjson({
         "type": "news_catalog",
         "content": {"articles": articles_flat},
@@ -757,7 +784,12 @@ def run_pipeline(
         is_gcc=is_gcc,
     )
 
-    interpretation_json = json.dumps(signal_interpretation, indent=2, default=str)
+    writer_interpretation: dict[str, Any] = {}
+    if isinstance(signal_interpretation, dict):
+        for key in _WRITER_INTERPRETATION_KEYS:
+            if key in signal_interpretation:
+                writer_interpretation[key] = signal_interpretation[key]
+    interpretation_json = json.dumps(writer_interpretation, indent=2, default=str)
 
     period_highlight = ""
     if isinstance(signal_interpretation, dict):
@@ -772,6 +804,20 @@ def run_pipeline(
         injection += (
             f"PERIOD HIGHLIGHT (use this as the governing thought for the executive summary):\n"
             f"{period_highlight}\n\n"
+        )
+
+    exhibit_kpi_ids = _build_exhibit_kpi_ids(notable_kpi_ids=notable_ids, is_gcc=is_gcc)
+    exhibit_map = _compute_exhibit_map(exhibit_kpi_ids, profile=profile)
+    if exhibit_map:
+        exhibit_lines = ", ".join(f"KPI {k} = ({v})" for k, v in sorted(exhibit_map.items()))
+        injection += (
+            "EXHIBIT MAP — use these labels when you reference chart data in prose:\n"
+            f"{exhibit_lines}\n"
+            "- When you state a chart-sourced number in prose, append the exhibit label "
+            "in parentheses, e.g. 'real GDP grew 3.1% (1B)'. Just the code, no 'Exhibit'.\n"
+            "- Keep [CHART:kpi_id] markers inside [SECTION:...] bodies only — they are "
+            "chart-placement directives, not prose references. Avoid them in "
+            "[EXEC_SUMMARY] and [OUTLOOK]; the parser strips them there anyway.\n\n"
         )
 
     injection += (
@@ -791,20 +837,13 @@ def run_pipeline(
 
     if deep_analysis and articles_flat:
         injection += (
-            "DEEP-MODE CITATION POLICY:\n"
-            "Use 1-2 [src:N] citations where a named policy, event, or institutional decision "
-            "supports a structural claim. Keep citations sparse and evidence-linked.\n\n"
-        )
-
-    exhibit_kpi_ids = _build_exhibit_kpi_ids(notable_kpi_ids=notable_ids, is_gcc=is_gcc)
-    exhibit_map = _compute_exhibit_map(exhibit_kpi_ids, profile=profile)
-    if exhibit_map:
-        exhibit_lines = ", ".join(f"KPI {k} = ({v})" for k, v in sorted(exhibit_map.items()))
-        injection += (
-            f"EXHIBIT MAP — cite these labels when referencing chart data:\n"
-            f"{exhibit_lines}\n"
-            "When stating a number from a chart, append the exhibit label in parentheses: "
-            "e.g. 'GDP grew 3.2% (1A)'. Do NOT write 'Exhibit' — just the code.\n\n"
+            "DEEP-MODE CITATION GUIDANCE (NEWS_CONTEXT is present):\n"
+            "- When a structural claim about policy, events, or institutional decisions "
+            "draws from NEWS_CONTEXT, append [src:N] using the article's `n` field.\n"
+            "- Aim to place citations in 3+ different sections rather than clustering them "
+            "in one bullet.\n"
+            "- Only cite articles you actually drew from; never invent `n` values that are "
+            "not in NEWS_CONTEXT.\n\n"
         )
 
     messages.append({"role": "user", "content": injection})

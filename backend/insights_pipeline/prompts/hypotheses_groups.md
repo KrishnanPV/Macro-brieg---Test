@@ -46,9 +46,8 @@ For each group, emit 3-6 hypotheses. Each hypothesis must include:
 - `mechanism` (one sentence; how the cause would transmit to the signals)
 - `explains_signals` (signal_ids the hypothesis would plausibly explain)
 - `does_not_explain` (signal_ids in the group it would not explain)
-- `expected_evidence` (what would corroborate it)
-- `contradictory_evidence` (what would falsify it)
-- `neutral_search_queries` (queries phrased without a directional verdict)
+- `expected_evidence` (what would corroborate it; max 3 items)
+- `neutral_search_queries` (queries phrased without a directional verdict; max 3 items)
 - `search_priority` (`high` | `medium` | `low`)
 - `brief_use_before_evidence` (always `"do_not_use_as_claim"`)
 

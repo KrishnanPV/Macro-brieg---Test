@@ -113,8 +113,19 @@ _CORE_CONTRACT = {
         "executive_summary": {"required": True, "start": "[EXEC_SUMMARY]", "end": "[/EXEC_SUMMARY]"},
         "section": {"required": True, "start": "[SECTION:Title]", "end": "[/SECTION]"},
         "outlook": {"required": True, "start": "[OUTLOOK]", "end": "[/OUTLOOK]"},
-        "chart_ref": {"format": "[CHART:kpi_id]", "max_per_kpi": 1},
+        "chart_ref": {
+            "format": "[CHART:kpi_id]",
+            "max_per_kpi": 1,
+            "allowed_in": ["section"],
+            "forbidden_in": ["executive_summary", "outlook"],
+        },
     },
+    "prose_reference_rule": (
+        "To reference a chart's data in prose, append the exhibit label in "
+        "parentheses, e.g. '(1A)'. Never write '[CHART:kpi_id]' in prose, in "
+        "[EXEC_SUMMARY], or in [OUTLOOK] -- '[CHART:kpi_id]' is a chart-placement "
+        "directive that may appear only inside a [SECTION:...] body."
+    ),
     "section_rules": {
         "use_exact_titles": True,
         "keep_inflation_and_labour_separate": True,

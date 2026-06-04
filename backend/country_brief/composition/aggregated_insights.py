@@ -8,12 +8,13 @@ from typing import Any
 
 from backend.insights_pipeline.stages import (
     evaluator,
-    hypotheses_generator,  # noqa: F401  (kept importable; intentionally unused in revamped flow)
+    hypotheses_generator,
     insights_generator,
     news_researcher,
-    query_builder,
+    search_planner,
     signal_event_linker,
     signal_extractor,
+    signal_graph,
 )
 from backend.insights_pipeline.stages.common import REASONING_MODEL, get_kpi_context
 from backend.models.kpi_registry import ISO3_TO_NAME
@@ -340,23 +341,30 @@ def _filter_top_signals_per_kpi(
     raw_signals: list[dict[str, Any]],
     selected_kpi_ids: list[str],
 ) -> list[dict[str, Any]]:
-    """Group signals by source_kpi_id and keep top max(2, ceil(N*0.2)) per KPI.
+    """Group flat signals by ``kpi_id`` and keep the top max(2, ceil(N*0.2)) per KPI.
+
+    The new flat-schema replacement for the old ``materiality_score`` ranker:
+    signals are sorted by ``abs(pct_change)`` descending. Signals without
+    ``pct_change`` fall to the bottom of their bucket with score 0.0.
 
     Edge cases:
-    - When a KPI has only 1 signal, that 1 signal is kept (the min-2 rule
-      cannot be enforced and we'd rather keep representation than drop it).
-    - Signals missing ``source_kpi_id`` are bucketed under an empty key and
-      treated as their own group so they aren't silently dropped.
-    Sorting key is ``materiality_score`` (numeric, descending). Signals
-    without that field fall to the bottom of their group with score 0.0.
+    - When a KPI has only 1 signal, that 1 signal is kept.
+    - Signals missing ``kpi_id`` are bucketed under an empty key and treated as
+      their own group so they aren't silently dropped.
     """
     grouped: dict[str, list[dict[str, Any]]] = {}
     for sig in raw_signals:
-        kid = str(sig.get("source_kpi_id") or "").strip()
+        kid = str(sig.get("kpi_id") or sig.get("source_kpi_id") or "").strip()
         grouped.setdefault(kid, []).append(sig)
 
     ordered_keys = [k for k in selected_kpi_ids if k in grouped]
     ordered_keys.extend(k for k in grouped.keys() if k not in ordered_keys)
+
+    def _rank_key(sig: dict[str, Any]) -> float:
+        try:
+            return abs(float(sig.get("pct_change") or 0.0))
+        except (TypeError, ValueError):
+            return 0.0
 
     selected: list[dict[str, Any]] = []
     for kid in ordered_keys:
@@ -369,13 +377,55 @@ def _filter_top_signals_per_kpi(
         else:
             keep_n = max(2, math.ceil(n * 0.2))
             keep_n = min(keep_n, n)
-        bucket_sorted = sorted(
-            bucket,
-            key=lambda s: float(s.get("materiality_score") or 0.0),
-            reverse=True,
-        )
+        bucket_sorted = sorted(bucket, key=_rank_key, reverse=True)
         selected.extend(bucket_sorted[:keep_n])
     return selected
+
+
+_LEGACY_CONFIDENCE_MAP: dict[str, str] = {"high": "high", "medium": "medium", "low": "low"}
+
+
+def _flatten_hypotheses_for_legacy(
+    document: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Flatten the grouped hypotheses document into the legacy hypothesis shape.
+
+    Walks every ``hypothesis_groups[*].hypotheses[*]`` and emits the
+    ``{id, title, causal_story, potential_effects, confidence}`` shape that
+    the existing ``insights_generator.run_step`` and ``_build_themes`` expect.
+    ``null_data_hypothesis`` rows are skipped -- they would muddy theme
+    construction. This adapter is temporary scaffolding until downstream
+    consumers learn the new document shape.
+    """
+    legacy: list[dict[str, Any]] = []
+    if not isinstance(document, dict):
+        return legacy
+    for group in document.get("hypothesis_groups") or []:
+        if not isinstance(group, dict):
+            continue
+        for hyp in group.get("hypotheses") or []:
+            if not isinstance(hyp, dict):
+                continue
+            if str(hyp.get("hypothesis_type") or "") == "null_data_hypothesis":
+                continue
+            title = str(hyp.get("hypothesis") or "").strip()
+            if len(title) > 120:
+                title = title[:117].rstrip() + "..."
+            priority = str(hyp.get("search_priority") or "medium")
+            legacy.append(
+                {
+                    "id": str(hyp.get("hypothesis_id") or ""),
+                    "title": title or "Untitled hypothesis",
+                    "causal_story": str(hyp.get("mechanism") or "").strip(),
+                    "potential_effects": [
+                        str(item).strip()
+                        for item in (hyp.get("expected_evidence") or [])
+                        if str(item).strip()
+                    ],
+                    "confidence": _LEGACY_CONFIDENCE_MAP.get(priority, "medium"),
+                }
+            )
+    return legacy
 
 
 def run_for_country(
@@ -414,41 +464,53 @@ def run_for_country(
 
     kpi_scope_name = _kpi_scope_name(selected_kpi_ids, kpi_results)
     country_name = ISO3_TO_NAME.get(str(country).upper().strip(), str(country))
-    kpi_names_in_scope = [
-        str((kpi_results.get(kid) or {}).get("kpi_name") or f"KPI {kid}").strip()
-        for kid in selected_kpi_ids
-    ]
 
-    # Hypotheses are skipped in the revamped flow; insights_generator receives [].
     hypotheses: list[dict[str, Any]] = []
-
+    hypothesis_document: dict[str, Any] = {}
+    planned_queries: list[dict[str, Any]] = []
     events: list[dict[str, Any]] = []
-    query_text = ""
     news_output: dict[str, Any] | None = None
-    query_output: dict[str, Any] | None = None
+
     if deep_analysis and selected_signals:
         try:
-            query_output = query_builder.run_step(
-                country_name=country_name,
-                kpi_names=kpi_names_in_scope,
-                reasoning_model=reasoning_model,
-            )
-            query_text = str(query_output.get("query") or "").strip()
+            groups = signal_graph.build_groups(raw_signals)
+            attached_groups = signal_graph.attach_signals(groups, raw_signals)
         except Exception:
-            log.exception("Aggregated query builder failed")
-            query_text = ""
-        if query_text:
+            log.exception("Aggregated signal grouping failed")
+            attached_groups = []
+
+        if attached_groups:
             try:
-                news_output = news_researcher.run_step_sliced(
-                    country_name=country_name,
-                    query=query_text,
-                    start_year=start_year,
-                    end_year=end_year,
+                hyp_output = hypotheses_generator.run_step_groups(
+                    country=country_name,
+                    period=f"{start_year}-{end_year}",
+                    archetype_tags=None,
+                    attached_groups=attached_groups,
+                    reasoning_model=reasoning_model,
                 )
-                events = _as_dict_list(news_output.get("events"))
+                hypothesis_document = dict(hyp_output.get("document") or {})
             except Exception:
-                log.exception("Aggregated sliced news research failed")
-                events = []
+                log.exception("Aggregated grouped hypotheses generation failed")
+                hypothesis_document = {}
+
+            hypotheses = _flatten_hypotheses_for_legacy(hypothesis_document)
+            planned_queries = search_planner.plan_searches(
+                hypothesis_document,
+                budget=search_planner.DEFAULT_BUDGET,
+            )
+
+            if planned_queries:
+                try:
+                    news_output = news_researcher.run_planned_queries(
+                        planned_queries=planned_queries,
+                        country_name=country_name,
+                        start_year=start_year,
+                        end_year=end_year,
+                    )
+                    events = _as_dict_list(news_output.get("events"))
+                except Exception:
+                    log.exception("Aggregated planned-queries news research failed")
+                    events = []
 
     try:
         link_output = signal_event_linker.link(selected_signals, events)
@@ -553,8 +615,9 @@ def run_for_country(
         "signal_event_links": link_output.get("links", []),
         "unlinked_signals": link_output.get("unlinked_signals", []),
         "unlinked_events": link_output.get("unlinked_events", []),
-        "news_query": query_text,
-        "news_slices": (news_output or {}).get("slices", []) if news_output else [],
+        "planned_queries": planned_queries,
+        "news_by_query": (news_output or {}).get("by_query", []) if news_output else [],
+        "hypothesis_document": hypothesis_document,
     }
     prompt_bundle = {"articles": prompt_articles} if prompt_articles else None
     return interpretation, articles_flat, prompt_bundle

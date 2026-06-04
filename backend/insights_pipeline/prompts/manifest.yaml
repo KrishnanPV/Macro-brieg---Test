@@ -1,6 +1,6 @@
 {
   "manifest_version": 1,
-  "prompt_bundle_version": "0.1.4",
+  "prompt_bundle_version": "0.1.5",
   "updated_at": "2026-06-02",
   "models": {
     "reasoning": "gpt-5.3-chat-latest",
@@ -54,7 +54,7 @@
     {
       "id": "hypotheses_groups",
       "file": "hypotheses_groups.md",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "used_by": ["hypotheses_generator"]
     }
   ]

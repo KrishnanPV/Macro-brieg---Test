@@ -38,30 +38,31 @@ def _months_between(a: date, b: date) -> float:
     return delta_days / 30.4375
 
 
+_POINT_EVENT_TYPES: frozenset[str] = frozenset({"spike", "dip", "turning_point"})
+
+
 def _signal_anchor_dates(signal: dict[str, Any]) -> Iterable[tuple[str, date]]:
-    """Yield (sub_event_label, date) pairs from a signal's structured fields."""
-    for seg in signal.get("segments") or []:
-        if not isinstance(seg, dict):
-            continue
-        period = str(seg.get("period") or "")
-        for chunk in period.split(" to "):
-            parsed = _parse_date(chunk)
-            if parsed:
-                yield f"segment::{period}", parsed
-    for tp in signal.get("turning_points") or []:
-        if not isinstance(tp, dict):
-            continue
-        parsed = _parse_date(tp.get("period"))
+    """Yield ``(sub_event_label, date)`` pairs for a flat-schema Signal.
+
+    Point-style events (``spike`` / ``dip`` / ``turning_point``) prefer the
+    ``metrics.pivot_date`` (the date of the actual event), falling back to
+    ``period_end``. All other signal types anchor on ``period_end``.
+    """
+    signal_type = str(signal.get("signal_type") or "").strip()
+    metrics = signal.get("metrics") or {}
+    pivot_date = metrics.get("pivot_date") if isinstance(metrics, dict) else None
+    period_end = signal.get("period_end")
+
+    if signal_type in _POINT_EVENT_TYPES:
+        parsed = _parse_date(pivot_date) or _parse_date(period_end)
         if parsed:
-            kind = str(tp.get("type") or "turning_point")
-            yield f"turning_point::{kind}", parsed
-    for sp in signal.get("spikes_or_dips") or []:
-        if not isinstance(sp, dict):
-            continue
-        parsed = _parse_date(sp.get("period"))
-        if parsed:
-            kind = str(sp.get("type") or "spike_or_dip")
-            yield f"{kind}", parsed
+            yield signal_type, parsed
+        return
+
+    parsed = _parse_date(period_end)
+    if parsed:
+        label = signal_type or "signal"
+        yield label, parsed
 
 
 def link(

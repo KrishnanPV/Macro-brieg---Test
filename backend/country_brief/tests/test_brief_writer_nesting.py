@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from backend.country_brief.brief_writer import (
     _normalize_bullet_nesting,
+    _strip_chart_markers,
     _strip_confidence_tags,
     parse_brief_blocks,
 )
@@ -176,3 +177,88 @@ def test_parse_brief_blocks_normalizes_executive_summary():
         "- **Headline two.** lead\n"
         "  - supporting evidence two"
     )
+
+
+def test_strip_chart_markers_removes_single_marker():
+    raw = "Real GDP grew 3.1% in 2024 [CHART:2] before slowing."
+    cleaned = _strip_chart_markers(raw)
+    assert "[CHART:" not in cleaned
+    assert "Real GDP grew 3.1% in 2024" in cleaned
+    assert "before slowing." in cleaned
+
+
+def test_strip_chart_markers_removes_consecutive_markers():
+    raw = "Inflation eased [CHART:6][CHART:13] across the period."
+    cleaned = _strip_chart_markers(raw)
+    assert "[CHART:" not in cleaned
+    assert "Inflation eased" in cleaned
+    assert "across the period." in cleaned
+
+
+def test_strip_chart_markers_handles_empty_string():
+    assert _strip_chart_markers("") == ""
+
+
+def test_strip_chart_markers_collapses_excessive_blank_lines():
+    raw = "line one\n\n\n\nline two"
+    cleaned = _strip_chart_markers(raw)
+    assert cleaned == "line one\n\nline two"
+
+
+def test_parse_brief_blocks_strips_chart_markers_from_exec_summary():
+    raw = (
+        "[EXEC_SUMMARY]\n"
+        "- **Growth slowed in 2024** as oil output fell [CHART:2].\n"
+        "- Non-oil activity remained resilient [CHART:6][CHART:13].\n"
+        "[/EXEC_SUMMARY]\n"
+        "[SECTION:Economic Performance & Growth]\nbody\n[/SECTION]\n"
+        "[OUTLOOK]o[/OUTLOOK]\n"
+    )
+
+    blocks = parse_brief_blocks(raw)
+    exec_block = next(b for b in blocks if b["type"] == "executive_summary")
+
+    assert "[CHART:" not in exec_block["content"]
+    assert "Growth slowed in 2024" in exec_block["content"]
+    assert "Non-oil activity remained resilient" in exec_block["content"]
+
+
+def test_parse_brief_blocks_strips_chart_markers_from_outlook():
+    raw = (
+        "[EXEC_SUMMARY]\n- summary\n[/EXEC_SUMMARY]\n"
+        "[SECTION:Economic Performance & Growth]\nbody\n[/SECTION]\n"
+        "[OUTLOOK]\n"
+        "**Tailwinds**\n"
+        "- Fiscal expansion continues [CHART:13][CHART:8][CHART:4].\n"
+        "**Headwinds**\n"
+        "- Oil price volatility persists [CHART:2].\n"
+        "**Net Assessment**\n"
+        "- Balanced.\n"
+        "[/OUTLOOK]\n"
+    )
+
+    blocks = parse_brief_blocks(raw)
+    outlook = next(b for b in blocks if b["type"] == "outlook")
+
+    assert "[CHART:" not in outlook["content"]
+    assert "Tailwinds" in outlook["content"]
+    assert "Headwinds" in outlook["content"]
+
+
+def test_parse_brief_blocks_strips_chart_markers_from_outlook_fallback():
+    raw = (
+        "[EXEC_SUMMARY]\n- summary\n[/EXEC_SUMMARY]\n"
+        "[SECTION:Economic Performance & Growth]\nbody\n[/SECTION]\n"
+        "## Outlook\n"
+        "**Tailwinds**\n"
+        "- Diversification gains [CHART:2][CHART:11].\n"
+        "**Headwinds**\n"
+        "- External demand risk [CHART:6].\n"
+        "**Net Assessment**\n"
+        "- Cautiously positive.\n"
+    )
+
+    blocks = parse_brief_blocks(raw)
+    outlook_blocks = [b for b in blocks if b["type"] == "outlook"]
+    if outlook_blocks:
+        assert "[CHART:" not in outlook_blocks[0]["content"]

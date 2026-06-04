@@ -172,3 +172,19 @@ Append-only log for lab prompt updates. Do not edit past entries; add a new entr
 **Impact**
 - New per-group hypotheses output schema available; legacy per-KPI `run_step` remains untouched.
 - Prompt size remains small and targeted; no other prompt files were modified.
+
+## [011] 2026-06-02 - hypotheses_groups.md (0.1.1), manifest.yaml
+
+**Change**
+- Dropped `contradictory_evidence` from the hypothesis schema and prompt: the field was emitted by the model but never consumed by `_flatten_hypotheses_for_legacy`, `search_planner.plan_searches`, or the brief writer, so it was pure output-token cost.
+- Capped `expected_evidence` and `neutral_search_queries` at 3 items each (enforced via `maxItems` in the json_schema and slicing in `_validate_hypothesis`).
+- Kept the prompt ask at 3-6 hypotheses per group (per user preference); the cost work is done by schema trim + input trim (see `_trim_signal_for_prompt` in `hypotheses_generator.py`).
+- Bumped `prompt_bundle_version` to `0.1.5` and `hypotheses_groups` version to `0.1.1`.
+
+**Reason**
+- The grouped hypothesis call routinely hit `max_completion_tokens` at 6000 in the deep-mode Saudi run, breaking the entire downstream news flow (truncated JSON -> empty hypothesis document -> empty search plan -> zero articles -> no `[src:N]` citations). Trimming unused output fields cuts visible token output without reducing hypothesis count.
+- `contradictory_evidence` removal is safe: no downstream consumer reads it (verified across `aggregated_insights.py`, `search_planner.py`, and `brief_writer.py`).
+
+**Impact**
+- Smaller, faster, cheaper hypothesis JSON; hypothesis count per group unchanged (3-6).
+- Combined with the input trim (`_trim_signal_for_prompt`) and the new `_truncated` warning surface in `common.call_json_model`, this should make deep-mode runs complete reliably at `max_completion_tokens=12000` and surface a loud ERROR if they ever do truncate again.
