@@ -269,6 +269,30 @@ def _inject_fallback_sources(raw_text: str, fallback_markers: list[str]) -> str:
     return raw_text + source_line
 
 
+def _close_unclosed_blocks(text: str) -> str:
+    """Append missing close tags for blocks truncated at the end of the stream.
+
+    Truncation removes the tail of the response, so the final block is the one
+    left open. Closing it keeps marker-based downstream logic (stub insertion,
+    citation injection, exhibit labelling) consistent with the parser, which is
+    independently tolerant of unclosed tags. Any spurious dangling close tag in
+    the rare mid-document malformation case is harmless (it has no matching open
+    marker and is ignored by every block regex).
+    """
+    if not text:
+        return text
+    for open_tag, close_tag in (
+        ("[EXEC_SUMMARY]", "[/EXEC_SUMMARY]"),
+        ("[OUTLOOK]", "[/OUTLOOK]"),
+        ("[METRICS_RIBBON]", "[/METRICS_RIBBON]"),
+    ):
+        if text.count(open_tag) > text.count(close_tag):
+            text = text.rstrip() + "\n" + close_tag
+    if text.count("[SECTION:") > text.count("[/SECTION]"):
+        text = text.rstrip() + "\n[/SECTION]"
+    return text
+
+
 def _apply_brief_contract_guardrails(
     raw_text: str,
     *,
@@ -278,6 +302,11 @@ def _apply_brief_contract_guardrails(
 ) -> tuple[str, list[str]]:
     issues: list[str] = []
     text = (raw_text or "").strip()
+
+    closed_text = _close_unclosed_blocks(text)
+    if closed_text != text:
+        text = closed_text
+        issues.append("closed_unclosed_blocks")
 
     if not text:
         text = (
@@ -556,7 +585,60 @@ def _ensure_required_section_charts(
     return blocks
 
 
+_PIPELINE_ERROR_MESSAGE = (
+    "Brief generation hit an unexpected error; showing a reduced brief. "
+    "Try regenerating for full detail."
+)
+
+
+def _emergency_blocks() -> list[dict[str, Any]]:
+    """Build a minimal but renderable brief used when the pipeline fails.
+
+    Runs the existing contract guardrails on empty input so the user always
+    receives a non-empty executive summary and outlook instead of a blank or
+    errored screen. Requires no KPI/news context, so it is always safe to emit.
+    """
+    guarded_text, _ = _apply_brief_contract_guardrails(
+        "",
+        required_sections=[],
+        deep_analysis=False,
+        articles_flat=[],
+    )
+    return parse_brief_blocks(guarded_text)
+
+
 def run_pipeline(
+    req: CountryBriefGenerateRequest,
+    *,
+    deep_analysis: bool = False,
+) -> Iterator[str]:
+    """Stream a country brief, guaranteeing the user never gets a blank/errored brief.
+
+    Delegates to :func:`_run_pipeline_impl` and wraps the whole NDJSON stream in
+    a safety net: any unhandled exception is converted into a ``type: error``
+    event followed by an emergency ``blocks`` payload (unless real blocks were
+    already emitted) and a terminating ``done`` event, so the frontend always
+    has something usable to render.
+    """
+    blocks_emitted = False
+    done_emitted = False
+    try:
+        for line in _run_pipeline_impl(req, deep_analysis=deep_analysis):
+            if '"type": "blocks"' in line:
+                blocks_emitted = True
+            elif '"type": "done"' in line:
+                done_emitted = True
+            yield line
+    except Exception:
+        log.exception("Country brief pipeline failed; emitting emergency brief.")
+        yield _ndjson({"type": "error", "content": _PIPELINE_ERROR_MESSAGE})
+        if not blocks_emitted:
+            yield _ndjson({"type": "blocks", "content": _emergency_blocks()})
+        if not done_emitted:
+            yield _ndjson({"type": "done"})
+
+
+def _run_pipeline_impl(
     req: CountryBriefGenerateRequest,
     *,
     deep_analysis: bool = False,
@@ -852,6 +934,13 @@ def run_pipeline(
     for event_type, payload in stream_brief(messages):
         if event_type == "text_delta":
             yield _ndjson({"type": "text_delta", "content": payload})
+        elif event_type == "status":
+            yield _ndjson({"type": "status", "content": payload})
+        elif event_type == "truncated":
+            log.warning(
+                "Brief writer reported truncation (%s); a higher-budget retry was attempted.",
+                payload,
+            )
         elif event_type == "full_text":
             full_text = payload
 

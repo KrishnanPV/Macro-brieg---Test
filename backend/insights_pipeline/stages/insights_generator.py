@@ -83,6 +83,7 @@ def run_step(
         user_prompt=user_prompt,
         caller="insights_pipeline.insights_generator",
         include_call_meta=True,
+        max_completion_tokens=6000,
     )
     if generation_mode == "light":
         executive_summary = parsed.get("executive_summary", [])

@@ -381,8 +381,13 @@ const useCountryBriefStore = create(
                 } else if (chunk.type === 'text_delta') {
                   fullText += chunk.content
                   set({ streamingText: fullText })
+                } else if (chunk.type === 'error') {
+                  // Non-fatal: the backend safety net still emits usable blocks
+                  // after this, so we surface the notice but keep rendering.
+                  set({ error: chunk.content || 'Brief generation hit an error.' })
                 } else if (chunk.type === 'blocks') {
-                  set({ blocks: chunk.content, briefGenerated: true })
+                  const hasBlocks = Array.isArray(chunk.content) && chunk.content.length > 0
+                  set({ blocks: chunk.content || [], briefGenerated: hasBlocks })
                 } else if (chunk.type === 'done') {
                   set({ generating: false, statusMessage: '' })
                 }
@@ -394,11 +399,17 @@ const useCountryBriefStore = create(
             try {
               const chunk = JSON.parse(lineBuf.trim())
               if (chunk.type === 'blocks') {
-                set({ blocks: chunk.content, briefGenerated: true })
+                const hasBlocks = Array.isArray(chunk.content) && chunk.content.length > 0
+                set({ blocks: chunk.content || [], briefGenerated: hasBlocks })
               }
             } catch { /* ignore */ }
           }
 
+          // Never leave the user on a blank screen: if the stream ended without
+          // any renderable blocks, surface an actionable error.
+          if (!get().briefGenerated && !get().error) {
+            set({ error: 'The brief came back empty. Please try regenerating.' })
+          }
           set({ generating: false, statusMessage: '' })
         } catch (e) {
           set({ error: e.message, generating: false, statusMessage: '' })

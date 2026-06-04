@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from backend.country_brief.brief_writer import (
+    _is_incomplete_brief,
     _normalize_bullet_nesting,
     _strip_chart_markers,
     _strip_confidence_tags,
@@ -262,3 +263,90 @@ def test_parse_brief_blocks_strips_chart_markers_from_outlook_fallback():
     outlook_blocks = [b for b in blocks if b["type"] == "outlook"]
     if outlook_blocks:
         assert "[CHART:" not in outlook_blocks[0]["content"]
+
+
+# --- Truncation / unclosed-tag recovery -----------------------------------
+
+
+def test_parse_brief_blocks_recovers_unclosed_final_section():
+    # Truncated mid-stream: the last section opened but never closed.
+    raw = (
+        "[EXEC_SUMMARY]\n- summary\n[/EXEC_SUMMARY]\n"
+        "[SECTION:Economic Performance & Growth]\nfirst body\n[/SECTION]\n"
+        "[SECTION:External Position]\npartial body before the stream was cut"
+    )
+
+    blocks = parse_brief_blocks(raw)
+    sections = [b for b in blocks if b["type"] == "section"]
+    titles = [s["title"] for s in sections]
+
+    assert "External Position" in titles
+    external = next(s for s in sections if s["title"] == "External Position")
+    narrative = "\n".join(
+        c.get("content", "") for c in external["children"] if c.get("type") == "narrative"
+    )
+    assert "partial body before the stream was cut" in narrative
+
+
+def test_parse_brief_blocks_recovers_unclosed_outlook():
+    raw = (
+        "[EXEC_SUMMARY]\n- summary\n[/EXEC_SUMMARY]\n"
+        "[SECTION:Economic Performance & Growth]\nbody\n[/SECTION]\n"
+        "[OUTLOOK]\n**Tailwinds**\n- momentum continues"
+    )
+
+    blocks = parse_brief_blocks(raw)
+    outlook = next(b for b in blocks if b["type"] == "outlook")
+    assert "Tailwinds" in outlook["content"]
+    assert "momentum continues" in outlook["content"]
+
+
+def test_parse_brief_blocks_unclosed_exec_does_not_swallow_section():
+    # Exec opened without a close, followed by a real section: the tolerant
+    # regex must stop exec at the next opening marker, not consume the section.
+    raw = (
+        "[EXEC_SUMMARY]\n- summary point\n"
+        "[SECTION:Economic Performance & Growth]\nsection body\n[/SECTION]\n"
+        "[OUTLOOK]o[/OUTLOOK]\n"
+    )
+
+    blocks = parse_brief_blocks(raw)
+    exec_block = next(b for b in blocks if b["type"] == "executive_summary")
+    section = next(b for b in blocks if b["type"] == "section")
+
+    assert "summary point" in exec_block["content"]
+    assert "[SECTION" not in exec_block["content"]
+    assert section["title"] == "Economic Performance & Growth"
+
+
+def test_parse_brief_blocks_wellformed_brief_unchanged_by_tolerant_regex():
+    # A normal closed brief must parse exactly as before (no over-capture).
+    raw = (
+        "[EXEC_SUMMARY]\n- summary\n[/EXEC_SUMMARY]\n"
+        "[SECTION:Economic Performance & Growth]\nbody one\n[/SECTION]\n"
+        "[SECTION:External Position]\nbody two\n[/SECTION]\n"
+        "[OUTLOOK]\n**Tailwinds**\n- x\n[/OUTLOOK]\n"
+    )
+
+    blocks = parse_brief_blocks(raw)
+    sections = [b for b in blocks if b["type"] == "section"]
+    assert [s["title"] for s in sections] == [
+        "Economic Performance & Growth",
+        "External Position",
+    ]
+    first = "\n".join(
+        c.get("content", "") for c in sections[0]["children"] if c.get("type") == "narrative"
+    )
+    assert first == "body one"
+    assert "body two" not in first
+
+
+def test_is_incomplete_brief_detection():
+    assert _is_incomplete_brief("") is True
+    assert _is_incomplete_brief("   ") is True
+    assert _is_incomplete_brief("[SECTION:X]\nbody with no close") is True
+    assert _is_incomplete_brief("[EXEC_SUMMARY]\n- a") is True
+    assert _is_incomplete_brief("[OUTLOOK]\n**Tailwinds**") is True
+    assert _is_incomplete_brief(
+        "[EXEC_SUMMARY]\n- a\n[/EXEC_SUMMARY]\n[OUTLOOK]\nx\n[/OUTLOOK]"
+    ) is False

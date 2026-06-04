@@ -170,45 +170,29 @@ def _perplexity_client() -> OpenAI:
     return OpenAI(api_key=PERPLEXITY_API_KEY, base_url=PERPLEXITY_URL)
 
 
-def call_json_model(
+# Upper bound for retry token-budget escalation. A truncated/unparseable JSON
+# response is retried with a doubled cap, clamped to this ceiling, so a single
+# bad call can never silently produce an empty downstream stage.
+MAX_COMPLETION_TOKENS_HARD_CAP = 16000
+
+
+def _run_json_attempt(
     *,
+    client: OpenAI,
     model: str,
     system_prompt: str,
     user_prompt: str,
     caller: str,
-    use_perplexity: bool = False,
-    max_completion_tokens: int = 3000,
-    include_call_meta: bool = False,
-    response_schema: dict[str, Any] | None = None,
-    response_schema_name: str = "output",
-) -> dict[str, Any] | tuple[dict[str, Any], dict[str, Any]]:
-    """Run one chat completion and parse JSON response.
+    max_completion_tokens: int,
+    extra_kwargs: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], bool]:
+    """Run a single chat completion and parse it into a payload dict.
 
-    When ``response_schema`` is provided, the call is constrained via
-    structured outputs (``response_format`` of type ``json_schema``). On
-    OpenAI the request adds ``strict=True``; Perplexity Sonar accepts the
-    same ``json_schema`` shape but does NOT accept ``strict`` (per
-    https://docs.perplexity.ai/docs/agent-api/output-control).
-
-    If the model still returns text that is not pure JSON (e.g. wrapping
-    its JSON in a code fence or sandwiching it between prose/citation
-    blocks, which Sonar does fairly often), the response is run through
-    :func:`_extract_embedded_json` before the wrapped-text fallback. This
-    salvages otherwise-billed-but-useless calls.
+    Returns ``(payload, call_meta, retry_recommended)``. ``retry_recommended``
+    is ``True`` when the response was truncated (``finish_reason == "length"``)
+    or could not be parsed as JSON, signalling the caller to retry with a
+    larger token budget.
     """
-    client = _perplexity_client() if use_perplexity else _openai_client()
-    extra_kwargs: dict[str, Any] = {}
-    if response_schema is not None:
-        json_schema_body: dict[str, Any] = {
-            "name": response_schema_name,
-            "schema": response_schema,
-        }
-        if not use_perplexity:
-            json_schema_body["strict"] = True
-        extra_kwargs["response_format"] = {
-            "type": "json_schema",
-            "json_schema": json_schema_body,
-        }
     response = client.chat.completions.create(
         model=model,
         messages=[
@@ -279,9 +263,8 @@ def call_json_model(
                 "_truncated": truncated,
                 "_finish_reason": finish_reason,
             }
-            if include_call_meta:
-                return fallback, call_meta
-            return fallback
+            # Unparseable output is always worth retrying with more head-room.
+            return fallback, call_meta, True
         log.info(
             "%s recovered JSON from prose response via embedded-extraction "
             "(finish_reason=%s).",
@@ -294,16 +277,102 @@ def call_json_model(
             # partial-but-valid JSON (rare, but possible with reasoning models).
             parsed.setdefault("_truncated", True)
             parsed.setdefault("_finish_reason", finish_reason)
-        if include_call_meta:
-            return parsed, call_meta
-        return parsed
+        return parsed, call_meta, truncated
     wrapped: dict[str, Any] = {"items": parsed}
     if truncated:
         wrapped["_truncated"] = True
         wrapped["_finish_reason"] = finish_reason
+    return wrapped, call_meta, truncated
+
+
+def call_json_model(
+    *,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    caller: str,
+    use_perplexity: bool = False,
+    max_completion_tokens: int = 3000,
+    include_call_meta: bool = False,
+    response_schema: dict[str, Any] | None = None,
+    response_schema_name: str = "output",
+    max_retries: int = 1,
+) -> dict[str, Any] | tuple[dict[str, Any], dict[str, Any]]:
+    """Run one chat completion and parse JSON response.
+
+    When ``response_schema`` is provided, the call is constrained via
+    structured outputs (``response_format`` of type ``json_schema``). On
+    OpenAI the request adds ``strict=True``; Perplexity Sonar accepts the
+    same ``json_schema`` shape but does NOT accept ``strict`` (per
+    https://docs.perplexity.ai/docs/agent-api/output-control).
+
+    If the model still returns text that is not pure JSON (e.g. wrapping
+    its JSON in a code fence or sandwiching it between prose/citation
+    blocks, which Sonar does fairly often), the response is run through
+    :func:`_extract_embedded_json` before the wrapped-text fallback. This
+    salvages otherwise-billed-but-useless calls.
+
+    Truncation (``finish_reason == "length"``) and outright parse failure are
+    the most common causes of an empty downstream stage. To prevent that, the
+    call is retried up to ``max_retries`` times, doubling ``max_completion_tokens``
+    each attempt (clamped to :data:`MAX_COMPLETION_TOKENS_HARD_CAP`). The best
+    available payload is always returned -- callers keep their existing
+    parse/validate flow regardless of how many attempts ran.
+    """
+    client = _perplexity_client() if use_perplexity else _openai_client()
+    extra_kwargs: dict[str, Any] = {}
+    if response_schema is not None:
+        json_schema_body: dict[str, Any] = {
+            "name": response_schema_name,
+            "schema": response_schema,
+        }
+        if not use_perplexity:
+            json_schema_body["strict"] = True
+        extra_kwargs["response_format"] = {
+            "type": "json_schema",
+            "json_schema": json_schema_body,
+        }
+
+    current_cap = max_completion_tokens
+    attempt = 0
+    payload, call_meta, retry_recommended = _run_json_attempt(
+        client=client,
+        model=model,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        caller=caller,
+        max_completion_tokens=current_cap,
+        extra_kwargs=extra_kwargs,
+    )
+    while retry_recommended and attempt < max_retries:
+        new_cap = min(current_cap * 2, MAX_COMPLETION_TOKENS_HARD_CAP)
+        if new_cap <= current_cap:
+            # Already at the hard cap; another attempt would not help.
+            break
+        attempt += 1
+        log.warning(
+            "%s retrying after truncated/unparseable output: max_completion_tokens "
+            "%d -> %d (attempt %d/%d).",
+            caller,
+            current_cap,
+            new_cap,
+            attempt,
+            max_retries,
+        )
+        current_cap = new_cap
+        payload, call_meta, retry_recommended = _run_json_attempt(
+            client=client,
+            model=model,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            caller=caller,
+            max_completion_tokens=current_cap,
+            extra_kwargs=extra_kwargs,
+        )
+
     if include_call_meta:
-        return wrapped, call_meta
-    return wrapped
+        return payload, call_meta
+    return payload
 
 
 def call_text_model(

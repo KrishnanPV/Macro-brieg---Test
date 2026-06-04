@@ -40,6 +40,7 @@ def run_step(
         user_prompt=user_prompt,
         caller="insights_pipeline.evaluator",
         include_call_meta=True,
+        max_completion_tokens=6000,
     )
     return {
         "score": parsed.get("score", 0),

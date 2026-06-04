@@ -72,10 +72,17 @@ def _model_kwargs(model: str) -> dict[str, Any]:
     return {"temperature": 0.3}
 
 
-_METRICS_RE = re.compile(r"\[METRICS_RIBBON\](.*?)\[/METRICS_RIBBON\]", re.DOTALL)
-_EXEC_RE = re.compile(r"\[EXEC_SUMMARY\](.*?)\[/EXEC_SUMMARY\]", re.DOTALL)
-_SECTION_RE = re.compile(r"\[SECTION:([^\]]+)\](.*?)\[/SECTION\]", re.DOTALL)
-_OUTLOOK_RE = re.compile(r"\[OUTLOOK\](.*?)\[/OUTLOOK\]", re.DOTALL)
+# Truncated briefs frequently arrive with an opening tag whose matching close
+# tag never made it into the stream. To avoid silently dropping that partial
+# (often final) block, every block regex accepts EITHER its own close tag OR a
+# zero-width lookahead at the next known opening marker / end-of-string. A
+# well-formed brief still matches at its real close tag (it appears before any
+# subsequent opening marker), so this only changes behavior for unclosed blocks.
+_NEXT_OPEN = r"(?=\[METRICS_RIBBON\]|\[EXEC_SUMMARY\]|\[SECTION:|\[OUTLOOK\]|\Z)"
+_METRICS_RE = re.compile(r"\[METRICS_RIBBON\](.*?)(?:\[/METRICS_RIBBON\]|" + _NEXT_OPEN + ")", re.DOTALL)
+_EXEC_RE = re.compile(r"\[EXEC_SUMMARY\](.*?)(?:\[/EXEC_SUMMARY\]|" + _NEXT_OPEN + ")", re.DOTALL)
+_SECTION_RE = re.compile(r"\[SECTION:([^\]]+)\](.*?)(?:\[/SECTION\]|" + _NEXT_OPEN + ")", re.DOTALL)
+_OUTLOOK_RE = re.compile(r"\[OUTLOOK\](.*?)(?:\[/OUTLOOK\]|" + _NEXT_OPEN + ")", re.DOTALL)
 _CHART_RE = re.compile(r"\[CHART:\s*(\d+)\s*\]", re.IGNORECASE)
 _TW_HW_RE = re.compile(r"\*\*Tailwinds\*\*", re.IGNORECASE)
 _BULLET_RE = re.compile(r"^(\s*)([-*])\s+(.*)$")
@@ -273,6 +280,28 @@ def parse_brief_blocks(raw_text: str) -> list[dict[str, Any]]:
     return blocks
 
 
+_BRIEF_MAX_TOKENS = 8000
+_BRIEF_RETRY_MAX_TOKENS = 12000
+
+
+def _is_incomplete_brief(text: str) -> bool:
+    """True when the markdown looks truncated mid-block.
+
+    An opening block tag without its matching close tag is the canonical
+    truncation symptom (the stream was cut before the model could emit the
+    closing marker). We also treat empty output as incomplete.
+    """
+    if not text or not text.strip():
+        return True
+    if text.count("[EXEC_SUMMARY]") > text.count("[/EXEC_SUMMARY]"):
+        return True
+    if text.count("[OUTLOOK]") > text.count("[/OUTLOOK]"):
+        return True
+    if text.count("[SECTION:") > text.count("[/SECTION]"):
+        return True
+    return False
+
+
 def stream_brief(messages: list[dict[str, str]]) -> Iterator[tuple[str, str]]:
     """Stream the brief as text deltas, then final full text.
 
@@ -285,32 +314,62 @@ def stream_brief(messages: list[dict[str, str]]) -> Iterator[tuple[str, str]]:
     narrative body. 8000 tokens comfortably covers an 8-section deep-mode
     brief at ~2,500-3,000 visible tokens plus the reasoning the model needs
     to satisfy the EXHIBIT MAP + CITATION POLICY constraints.
+
+    If the first attempt is still truncated (``finish_reason == "length"``) or
+    arrives with an unclosed block, the brief is regenerated once with a higher
+    token budget so the user is never served a half-written brief. The retry is
+    not re-streamed as ``text_delta`` (that would duplicate the preview); a
+    ``status`` event is emitted instead and the final ``full_text`` carries the
+    better result.
     """
     client = _get_client()
     model = BRIEF_MODEL
 
-    stream = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        max_completion_tokens=8000,
-        stream=True,
-        stream_options={"include_usage": True},
-        **_model_kwargs(model),
-    )
+    def _run(cap: int, emit_deltas: bool) -> Iterator[tuple[str, str]]:
+        full_parts: list[str] = []
+        usage = None
+        finish_reason: str | None = None
+        stream = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_completion_tokens=cap,
+            stream=True,
+            stream_options={"include_usage": True},
+            **_model_kwargs(model),
+        )
+        for chunk in stream:
+            if chunk.usage:
+                usage = chunk.usage
+            if not chunk.choices:
+                continue
+            choice = chunk.choices[0]
+            if choice.finish_reason:
+                finish_reason = choice.finish_reason
+            delta = choice.delta
+            if delta.content:
+                full_parts.append(delta.content)
+                if emit_deltas:
+                    yield ("text_delta", delta.content)
+        record_usage(model, usage, caller="brief_writer.stream_brief")
+        return "".join(full_parts), finish_reason
 
-    full_text = ""
-    usage = None
-    for chunk in stream:
-        if chunk.usage:
-            usage = chunk.usage
-        if not chunk.choices:
-            continue
-        delta = chunk.choices[0].delta
-        if delta.content:
-            full_text += delta.content
-            yield ("text_delta", delta.content)
+    full_text, finish_reason = yield from _run(_BRIEF_MAX_TOKENS, True)
 
-    record_usage(model, usage, caller="brief_writer.stream_brief")
+    if finish_reason == "length" or _is_incomplete_brief(full_text):
+        log.warning(
+            "brief_writer.stream_brief produced truncated/incomplete output "
+            "(finish_reason=%s, chars=%d); regenerating with a higher token budget.",
+            finish_reason,
+            len(full_text or ""),
+        )
+        yield ("truncated", finish_reason or "incomplete")
+        yield ("status", "Brief came back truncated; regenerating with more room...")
+        retry_text, _retry_finish = yield from _run(_BRIEF_RETRY_MAX_TOKENS, False)
+        # Keep the retry only if it is a genuine improvement: complete output,
+        # or simply more content than the truncated first attempt.
+        if retry_text and (not _is_incomplete_brief(retry_text) or len(retry_text) > len(full_text or "")):
+            full_text = retry_text
+
     yield ("full_text", full_text)
 
 
