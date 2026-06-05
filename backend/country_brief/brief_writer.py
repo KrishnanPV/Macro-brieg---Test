@@ -33,6 +33,14 @@ def _strip_confidence_tags(text: str) -> str:
 
 _TRAILING_WS_RE = re.compile(r"[ \t]+\n")
 _MULTI_BLANK_RE = re.compile(r"\n{3,}")
+# Removing an inline ``[CHART:N]`` marker that sat before punctuation leaves an
+# orphaned space (e.g. ``42,209bn [CHART:11].`` -> ``42,209bn .``); collapse it.
+_SPACE_BEFORE_PUNCT_RE = re.compile(r"[ \t]+([.,;:)])")
+# The model often wraps chart markers in a parenthetical reference list in prose
+# (e.g. ``manufacturing ([CHART:12], [CHART:11]).``). Once the markers are
+# stripped, the parenthetical collapses to punctuation-only scaffolding -- ``()``,
+# ``(,)``, ``(,,)`` -- which must be removed too (including any space before it).
+_ORPHANED_PARENS_RE = re.compile(r"[ \t]*\([ \t,;]*\)")
 
 # Catch-all for *any* chart token, including the literal placeholder
 # ``[CHART:kpi_id]`` (no numeric id) that the model copies verbatim from the
@@ -68,6 +76,8 @@ def _strip_chart_markers(text: str) -> str:
     if not text:
         return text
     cleaned = _CHART_ANY_RE.sub("", text)
+    cleaned = _ORPHANED_PARENS_RE.sub("", cleaned)
+    cleaned = _SPACE_BEFORE_PUNCT_RE.sub(r"\1", cleaned)
     cleaned = _EMPTY_BULLET_RE.sub("", cleaned)
     cleaned = _TRAILING_WS_RE.sub("\n", cleaned)
     cleaned = _MULTI_BLANK_RE.sub("\n\n", cleaned)
@@ -201,21 +211,31 @@ def _parse_metrics_ribbon(text: str) -> list[dict[str, str]]:
 
 
 def _split_narrative_and_charts(body: str) -> list[dict[str, Any]]:
+    """Extract chart refs, then emit the section prose as one normalized block.
+
+    Charts are rendered in a separate region from the prose (a dedicated chart
+    column in the brief view), so a ``[CHART:N]`` marker's position *inside* the
+    narrative is irrelevant to layout. Splitting the prose at each marker, on the
+    other hand, fractures the bullet list: the model routinely places a chart
+    marker inline within the first bold lead bullet, which would strand that
+    lead in one chunk and its supporting sub-bullets in the next, defeating the
+    bold-lead/indented-evidence nesting.
+
+    So we pull every chart ref out first (in document order, de-duplicated),
+    then strip all chart markers from the prose and normalize the *entire*
+    contiguous bullet list once. This makes the lead-line + indented-sub-points
+    structure deterministic regardless of where the model dropped its markers.
+    """
     blocks: list[dict[str, Any]] = []
     seen_chart_ids: set[str] = set()
-    parts = _CHART_RE.split(body)
-    for i, part in enumerate(parts):
-        if i % 2 == 0:
-            # Scrub any residual non-numeric chart token (e.g. the verbatim
-            # ``[CHART:kpi_id]`` placeholder) that split() left in the prose.
-            text = _strip_chart_markers(part)
-            if text:
-                blocks.append({"type": "narrative", "content": text})
-        else:
-            kpi_id = part.strip()
-            if kpi_id not in seen_chart_ids:
-                blocks.append({"type": "chart_ref", "kpi_id": kpi_id})
-                seen_chart_ids.add(kpi_id)
+    for m in _CHART_RE.finditer(body):
+        kpi_id = m.group(1).strip()
+        if kpi_id and kpi_id not in seen_chart_ids:
+            blocks.append({"type": "chart_ref", "kpi_id": kpi_id})
+            seen_chart_ids.add(kpi_id)
+    narrative = _normalize_bullet_nesting(_strip_chart_markers(body))
+    if narrative:
+        blocks.append({"type": "narrative", "content": narrative})
     return blocks
 
 

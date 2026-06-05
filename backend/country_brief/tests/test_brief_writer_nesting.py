@@ -180,6 +180,69 @@ def test_parse_brief_blocks_normalizes_executive_summary():
     )
 
 
+def test_parse_brief_blocks_normalizes_section_narrative():
+    raw = (
+        "[EXEC_SUMMARY]\n- summary\n[/EXEC_SUMMARY]\n"
+        "[SECTION:Economic Performance & Growth]\n"
+        "- **Growth moderated but composition normalized.** Real GDP slowed.\n"
+        "- Services rose from 29,159 to 42,209 in real terms.\n"
+        "- Industry nearly doubled from its 2022 level.\n"
+        "- **Sector mix shifted toward industry.** Industry share rose 5.0pp.\n"
+        "- Agriculture's share fell 3.4pp over the window.\n"
+        "[/SECTION]\n"
+        "[OUTLOOK]o[/OUTLOOK]\n"
+    )
+
+    blocks = parse_brief_blocks(raw)
+    section = next(b for b in blocks if b["type"] == "section")
+    narrative = "\n".join(
+        c["content"] for c in section["children"] if c.get("type") == "narrative"
+    )
+
+    assert narrative == (
+        "- **Growth moderated but composition normalized.** Real GDP slowed.\n"
+        "  - Services rose from 29,159 to 42,209 in real terms.\n"
+        "  - Industry nearly doubled from its 2022 level.\n"
+        "- **Sector mix shifted toward industry.** Industry share rose 5.0pp.\n"
+        "  - Agriculture's share fell 3.4pp over the window."
+    )
+
+
+def test_parse_brief_blocks_nests_across_inline_chart_marker():
+    # The model routinely drops a [CHART:N] marker inline within the first bold
+    # lead bullet. Charts are pulled out and rendered separately, so the prose
+    # must stay one contiguous list and nest correctly end-to-end rather than
+    # being fractured at the marker (which would strand the lead from its
+    # supporting sub-bullets).
+    raw = (
+        "[EXEC_SUMMARY]\n- summary\n[/EXEC_SUMMARY]\n"
+        "[SECTION:Economic Performance & Growth]\n"
+        "- **Growth profile stays positive.** Real output keeps rising [CHART:12].\n"
+        "- Real GDP growth eased from the rebound peak.\n"
+        "- Services remain the largest component.\n"
+        "- **Sector mix shifted toward industry.** Industry share rose.\n"
+        "- Agriculture's share eases over the period.\n"
+        "[/SECTION]\n"
+        "[OUTLOOK]o[/OUTLOOK]\n"
+    )
+
+    blocks = parse_brief_blocks(raw)
+    section = next(b for b in blocks if b["type"] == "section")
+    chart_refs = [c for c in section["children"] if c.get("type") == "chart_ref"]
+    narratives = [c["content"] for c in section["children"] if c.get("type") == "narrative"]
+
+    assert [c["kpi_id"] for c in chart_refs] == ["12"]
+    assert len(narratives) == 1
+    assert "[CHART:" not in narratives[0]
+    assert narratives[0] == (
+        "- **Growth profile stays positive.** Real output keeps rising.\n"
+        "  - Real GDP growth eased from the rebound peak.\n"
+        "  - Services remain the largest component.\n"
+        "- **Sector mix shifted toward industry.** Industry share rose.\n"
+        "  - Agriculture's share eases over the period."
+    )
+
+
 def test_strip_chart_markers_removes_single_marker():
     raw = "Real GDP grew 3.1% in 2024 [CHART:2] before slowing."
     cleaned = _strip_chart_markers(raw)
@@ -230,6 +293,24 @@ def test_strip_chart_markers_drops_bullet_that_was_only_a_placeholder():
     assert "Demand keeps rising." in cleaned
     # The placeholder-only bullet must not leave a dangling empty bullet behind.
     assert not any(line.strip() in {"-", "*"} for line in cleaned.splitlines())
+
+
+def test_strip_chart_markers_removes_parenthetical_chart_reference_list():
+    # The model wraps chart markers in a parenthetical reference list; after the
+    # markers are stripped the empty/comma-only parens must not survive.
+    assert _strip_chart_markers("manufacturing ([CHART:12], [CHART:11]).") == "manufacturing."
+    assert _strip_chart_markers("GDP by 2026 ([CHART:13], [CHART:8], [CHART:4]).") == "GDP by 2026."
+    assert _strip_chart_markers("incentives [src:1][src:2] ([CHART:2]).") == "incentives [src:1][src:2]."
+
+
+def test_strip_chart_markers_removes_orphaned_parens_mid_sentence():
+    assert _strip_chart_markers("expansion ([CHART:2]) across the economy.") == "expansion across the economy."
+
+
+def test_strip_chart_markers_preserves_exhibit_label_parentheticals():
+    # Exhibit-label references like (1A) carry real content and must survive.
+    assert _strip_chart_markers("growth slowed (1A) before recovering.") == "growth slowed (1A) before recovering."
+    assert _strip_chart_markers("two exhibits (1A, 1B) shown.") == "two exhibits (1A, 1B) shown."
 
 
 def test_strip_chart_markers_handles_empty_string():
