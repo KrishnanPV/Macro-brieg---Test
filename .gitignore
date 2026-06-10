@@ -38,6 +38,9 @@ backend/tools/reasoning_distillation/corpus/imf_article_iv/excerpts/
 backend/tools/reasoning_distillation/annotations/imf_reasoning_units_v1.jsonl
 backend/tools/reasoning_distillation/outputs/reasoning_playbook_v1.md
 
+# Separated standalone repo (country-brief ARC skill bundle) — tracked in its own git repo
+skill-conversion/country-brief/
+
 # Misc
 COMMIT_MSG
 old_insights/
