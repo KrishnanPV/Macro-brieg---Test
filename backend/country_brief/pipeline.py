@@ -21,6 +21,7 @@ from backend.models.kpi_registry import SPECS
 from backend.models.schemas import CountryBriefGenerateRequest, KpiResult
 from backend.services.derived_facts import compute_derived_facts
 from backend.services.knoema_client import fetch_kpi_data, fetch_oil_price_data
+from backend.country_brief.consistency import audit_headline_consistency
 from backend.country_brief.kpi_triage import triage_kpis
 from backend.country_brief.metrics_ribbon import compute_ribbon_metrics
 
@@ -1061,6 +1062,13 @@ def _run_pipeline_impl(
     if computed_metrics:
         blocks = [b for b in blocks if b.get("type") != "metrics_ribbon"]
         blocks.insert(0, {"type": "metrics_ribbon", "metrics": computed_metrics})
+
+        consistency_warnings = audit_headline_consistency(blocks, computed_metrics)
+        if consistency_warnings:
+            log.warning(
+                "Headline numeric inconsistencies vs canonical figures: %s",
+                "; ".join(consistency_warnings),
+            )
 
     yield _ndjson({"type": "blocks", "content": blocks})
     yield _ndjson({"type": "done"})

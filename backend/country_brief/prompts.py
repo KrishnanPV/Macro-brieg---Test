@@ -7,6 +7,11 @@ import logging
 import re
 from typing import Any
 
+from backend.country_brief.consistency import (
+    build_canonical_figures,
+    format_canonical_figures_block,
+)
+from backend.country_brief.data_quality import detect_anomalies, format_data_quality_block
 from backend.insights_pipeline.runtime import PROMPTS_DIR, load_prompt_manifest, load_prompt_text
 from backend.models.kpi_registry import INSIGHT_LENSES, sorted_kpi_ids
 from backend.services.news_client import flatten_news_catalog
@@ -26,7 +31,16 @@ You are a senior economist writing an integrated country brief.
 Follow OUTPUT_CONTRACT_JSON exactly.
 Write concise, evidence-anchored, decision-oriented prose grounded in the provided data. Use cautious phrasing for causal claims unless the mechanism is explicit in the data; default to "is consistent with", "may reflect", "coincides with" when the channel is inferred rather than directly evidenced.
 Return only the marked brief content. No preamble or meta commentary.
-Never surface confidence flags (e.g. "Confidence: High", "Confidence: Medium-High") in the brief output — confidence assessments are internal and must not appear in any bullet, sub-bullet, or sentence.
+CONFIDENCE MARKER — end every top-level bullet in [EXEC_SUMMARY] and in each [SECTION:...] body with a confidence marker in the exact form [conf:H], [conf:M], or [conf:L], placed as the very last token of that bullet (after any [src:N] citation). Grade it by evidence strength: H = the claim is directly evidenced by the data series; M = partially evidenced or the mechanism is inferred; L = weak, ambiguous, or affected by a likely data anomaly. Do not put confidence markers on sub-bullets or in [OUTLOOK]. Do not write the word "Confidence:" anywhere — use only the [conf:X] token.
+"""
+
+GLOBAL_BACKDROP_GUIDANCE = """\
+
+GLOBAL BACKDROP — anchor the country in its external environment where it bears on the data:
+- Briefly reference relevant global conditions: major-economy monetary policy and global interest rates, the US-dollar cycle, commodity/oil prices, and demand from key trading partners.
+- For commodity-sensitive or pegged economies, connect global rates, the dollar, and oil-price moves to the local series (e.g. imported inflation, the FX peg, external-financing costs).
+- Note material geopolitical or trade-policy shifts (tariffs, sanctions, trade agreements) only when they plausibly bear on the KPIs.
+- Draw only on NEWS_CONTEXT and any oil-price overlay provided; do not invent specific figures. Integrate this into the relevant sections (especially External Position & Trade) and the Outlook — do not add a separate section.
 """
 
 FOCUS_ADDENDUM_TEMPLATE = """\
@@ -47,6 +61,7 @@ GDP / GROWTH LENS — this country is a GCC economy:
 - Reference oil-price movement over the window where it bears on the narrative.
 - Touch on other oil-sector signals (OPEC+ quotas, production decisions) when supported by the data or news context.
 - Treat non-oil growth as the diversification narrative; do not let the section become an oil report.
+- When the headline real GDP growth rate looks small or counter-intuitive next to strong component moves (e.g. a near-flat headline despite robust non-oil growth), reconcile it explicitly using `contribution_bridge` (each component's contribution in pp sums to headline growth). State why headline differs from the component story rather than leaving the gap unexplained.
 """
 
 _GDP_LENS_NON_GCC = """\
@@ -225,7 +240,7 @@ def _compact_derived_facts_payload(derived_facts: list[dict[str, Any]]) -> list[
             if segments:
                 compact_series_fact["trend_segments"] = segments[:2]
             compact_fact["series_facts"].append(compact_series_fact)
-        for optional_key in ("composition", "net_flow", "growth_gap"):
+        for optional_key in ("composition", "net_flow", "growth_gap", "contribution_bridge"):
             optional_val = fact.get(optional_key)
             if not isinstance(optional_val, list) or not optional_val:
                 continue
@@ -235,6 +250,10 @@ def _compact_derived_facts_payload(derived_facts: list[dict[str, Any]]) -> list[
                     if isinstance(row, dict) and row.get("type") == "share_shift_summary"
                 ]
                 compact_fact[optional_key] = shift_rows[:1] if shift_rows else optional_val[-1:]
+            elif optional_key == "contribution_bridge":
+                # Keep only the most recent period — that is where headline vs
+                # component reconciliation matters for the brief.
+                compact_fact[optional_key] = optional_val[-1:]
             else:
                 if len(optional_val) <= 2:
                     compact_fact[optional_key] = optional_val
@@ -473,6 +492,9 @@ def build_brief_prompt(
         "fdi_benchmark_context": fdi_benchmark_context or {},
     }
 
+    canonical_block = format_canonical_figures_block(build_canonical_figures(derived_facts))
+    data_quality_block = format_data_quality_block(detect_anomalies(filtered_facts))
+
     news_block = ""
     if news_prompt_bundle is not None:
         news_json = json.dumps(news_prompt_bundle, default=str)
@@ -518,9 +540,12 @@ def build_brief_prompt(
         f"```json\n{json.dumps(output_contract, default=str)}\n```\n\n"
         "DATA_CONTEXT (JSON):\n"
         f"```json\n{json.dumps(data_context, default=str)}\n```\n"
+        + canonical_block
+        + data_quality_block
         + news_block
         + fdi_benchmark_block
         + gdp_lens_block
+        + GLOBAL_BACKDROP_GUIDANCE
         + focus_block
         + manual_block
         + "\n\n"
@@ -530,6 +555,10 @@ def build_brief_prompt(
         "3. Use [CHART:<numeric_kpi_id>] markers (e.g. [CHART:12], using the KPI's "
         "actual numeric id) where the narrative references that KPI trend.\n"
         "4. Use annual references and avoid quarter-by-quarter narration unless essential.\n"
+        "5. In [OUTLOOK] Net Assessment, articulate an explicit upside scenario and a "
+        "downside scenario: name the 1-2 swing factors driving each and the directional "
+        "implication for growth and stability. Keep it qualitative and cautious — do not "
+        "fabricate precise forecast numbers or probabilities.\n"
     )
 
     return [

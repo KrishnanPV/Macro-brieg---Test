@@ -8,6 +8,9 @@ import pandas as pd
 _MULTI_SERIES_KPIS = frozenset({"2", "4", "11"})
 _PAIRED_NET_KPIS = frozenset({"4"})
 _GROWTH_GAP_KPIS = frozenset({"2"})
+# KPIs whose component levels sum to a meaningful total, so each component's
+# contribution to headline growth can be decomposed exactly (oil + non-oil = GDP).
+_CONTRIB_BRIDGE_KPIS = frozenset({"2"})
 
 
 def compute_derived_facts(results: list[dict]) -> list[dict]:
@@ -154,8 +157,53 @@ def compute_derived_facts(results: list[dict]) -> list[dict]:
         if kpi_id in _GROWTH_GAP_KPIS and len(all_series_vals) == 2:
             kpi_facts["growth_gap"] = _compute_growth_gap(all_series_vals)
 
+        if kpi_id in _CONTRIB_BRIDGE_KPIS and len(all_series_vals) >= 2:
+            bridge = _compute_contribution_bridge(all_series_vals)
+            if bridge:
+                kpi_facts["contribution_bridge"] = bridge
+
         facts.append(kpi_facts)
     return facts
+
+
+def _compute_contribution_bridge(
+    all_series: dict[str, list[tuple[str, float]]],
+) -> list[dict[str, Any]]:
+    """Decompose headline growth into each component's contribution (in pp).
+
+    For component series that sum to a total (e.g. oil + non-oil = GDP), the
+    contribution of component *c* to headline growth between two periods is
+    ``(c_curr - c_prev) / total_prev``. These contributions sum exactly to the
+    headline growth rate, which lets the brief reconcile a flat/odd headline
+    (e.g. UAE ~0.1%) against strong divergent component moves.
+    """
+    series_map: dict[str, dict[str, float]] = {
+        name: {d: v for d, v in vals} for name, vals in all_series.items()
+    }
+    date_sets = [set(m.keys()) for m in series_map.values()]
+    if not date_sets:
+        return []
+    common = sorted(set.intersection(*date_sets))
+    if len(common) < 2:
+        return []
+
+    bridge: list[dict[str, Any]] = []
+    for i in range(1, len(common)):
+        d_prev, d_curr = common[i - 1], common[i]
+        total_prev = sum(series_map[n][d_prev] for n in series_map)
+        if total_prev == 0:
+            continue
+        contributions = {
+            n: round((series_map[n][d_curr] - series_map[n][d_prev]) / total_prev * 100, 2)
+            for n in series_map
+        }
+        total_curr = sum(series_map[n][d_curr] for n in series_map)
+        bridge.append({
+            "date": d_curr,
+            "contributions_pp": contributions,
+            "headline_growth_pp": round((total_curr - total_prev) / total_prev * 100, 2),
+        })
+    return bridge
 
 
 def _summarize_segment(seg: list[dict]) -> dict[str, Any]:

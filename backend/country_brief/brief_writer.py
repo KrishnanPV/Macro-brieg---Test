@@ -17,18 +17,27 @@ _CONFIDENCE_LINE_RE = re.compile(
     r"^[ \t]*(?:[-*]\s+)?\**\s*[Cc]onfidence\s*[:=\u2013\u2014].*\n?",
     re.MULTILINE,
 )
+# Inline confidence marker emitted by the model (e.g. ``... evidence. [conf:H]``).
+# The model still assesses confidence in the background, but it is stripped here
+# so it never surfaces in the rendered brief.
+_CONFIDENCE_TOKEN_RE = re.compile(
+    r"[ \t]*\[conf:\s*(?:high|medium|med|low|h|m|l)\s*\]",
+    re.IGNORECASE,
+)
 
 
 def _strip_confidence_tags(text: str) -> str:
-    """Drop any line whose primary content is a 'Confidence: ...' flag.
+    """Remove confidence flags so they never surface in the brief output.
 
-    Matches with or without a leading bullet (``-``/``*``), with or without
-    bold markdown wrappers, and regardless of any trailing parenthetical
-    justification (e.g. ``- **Confidence: Medium-High** (clear shift).``).
-    The trailing newline is consumed so emptied bullet rows do not leave a
-    blank line behind.
+    Handles two forms the model may emit while assessing confidence internally:
+    a whole ``Confidence: ...`` line (with or without a leading bullet or bold
+    wrappers, and regardless of any trailing parenthetical justification, e.g.
+    ``- **Confidence: Medium-High** (clear shift).``), and the inline
+    ``[conf:H|M|L]`` token appended to a bullet. The trailing newline of a
+    confidence *line* is consumed so emptied bullet rows leave no blank line.
     """
-    return _CONFIDENCE_LINE_RE.sub("", text)
+    text = _CONFIDENCE_LINE_RE.sub("", text)
+    return _CONFIDENCE_TOKEN_RE.sub("", text)
 
 
 _TRAILING_WS_RE = re.compile(r"[ \t]+\n")

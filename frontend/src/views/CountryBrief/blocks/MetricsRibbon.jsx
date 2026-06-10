@@ -70,12 +70,35 @@ function formatChangePct(cp) {
   return `${sign}${cp.toFixed(1)}%`
 }
 
+function formatChangePp(pp) {
+  if (pp == null) return null
+  const sign = pp > 0 ? '+' : ''
+  return `${sign}${pp.toFixed(1)}pp`
+}
+
+/** "vs prior" delta: percentage-point for rate KPIs, relative percent for level KPIs. */
+function formatPrimaryDelta(metric) {
+  if (metric.change_pp != null) return formatChangePp(metric.change_pp)
+  return formatChangePct(metric.change_pct)
+}
+
+/** Cumulative change since the earliest period, for the hover popover. */
+function formatSinceEarliest(metric) {
+  if (metric.change_from_earliest_pp != null) {
+    return { label: 'Change', value: formatChangePp(metric.change_from_earliest_pp) }
+  }
+  if (metric.cagr != null) {
+    return { label: 'CAGR', value: formatChangePct(metric.cagr) }
+  }
+  return null
+}
+
 function MetricPopover({ metric, fixedPosition, onPopoverEnter, onPopoverLeave }) {
   const hasPrior = metric.prior_value != null
-  const hasCagr = metric.cagr != null
   const hasEarliest = metric.earliest_value != null
+  const sinceEarliest = formatSinceEarliest(metric)
 
-  if (!hasPrior && !hasCagr) return null
+  if (!hasPrior && !sinceEarliest) return null
 
   const { top, left } = fixedPosition
 
@@ -106,7 +129,7 @@ function MetricPopover({ metric, fixedPosition, onPopoverEnter, onPopoverLeave }
           </div>
         )}
 
-        {hasCagr && hasEarliest && (
+        {sinceEarliest && hasEarliest && (
           <>
             <div className="border-t border-slate-100 my-1" />
             <div className="flex justify-between">
@@ -114,8 +137,8 @@ function MetricPopover({ metric, fixedPosition, onPopoverEnter, onPopoverLeave }
               <span className="font-medium text-slate-600">{metric.earliest_value}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-slate-400">CAGR</span>
-              <span className="font-semibold text-slate-700">{formatChangePct(metric.cagr)}</span>
+              <span className="text-slate-400">{sinceEarliest.label}</span>
+              <span className="font-semibold text-slate-700">{sinceEarliest.value}</span>
             </div>
           </>
         )}
@@ -183,9 +206,9 @@ function MetricCell({ metric, isFirst }) {
 
   const trend = (metric.direction || 'flat').toLowerCase()
   const { Icon, valueClass, iconClass } = ribbonStyles(metric.kpi_id, trend, metric.label)
-  const changePct = formatChangePct(metric.change_pct)
+  const changeLabel = formatPrimaryDelta(metric)
 
-  const hasPopoverBody = metric && (metric.prior_value != null || metric.cagr != null)
+  const hasPopoverBody = metric && (metric.prior_value != null || formatSinceEarliest(metric) != null)
   const showPopover = Boolean(hovered && popoverPos && hasPopoverBody)
 
   return (
@@ -206,9 +229,9 @@ function MetricCell({ metric, isFirst }) {
             {metric.value}
           </span>
         </div>
-        {changePct && (
+        {changeLabel && (
           <p className="text-[9px] text-slate-400 mt-0.5 tabular-nums">
-            {changePct} vs prior
+            {changeLabel} vs prior
           </p>
         )}
       </div>

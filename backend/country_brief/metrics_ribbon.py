@@ -31,6 +31,15 @@ def _trend_from_change_pct(change_pct: float | None, *, threshold: float = 0.04)
     return "up" if change_pct > 0 else "down"
 
 
+def _trend_from_change_pp(change_pp: float | None, *, threshold: float = 0.05) -> str:
+    """Literal data trend for rate KPIs, based on percentage-point movement."""
+    if change_pp is None:
+        return "flat"
+    if abs(change_pp) < threshold:
+        return "flat"
+    return "up" if change_pp > 0 else "down"
+
+
 _PERCENT_KPIS = frozenset(("3", "5", "7", "8"))
 
 _SCALE_WORDS: dict[str, float] = {
@@ -161,16 +170,32 @@ def compute_ribbon_metrics(derived_facts: list[dict[str, Any]]) -> list[dict[str
         if lv is None:
             continue
 
-        cp = sf.get("change_pct")
-        direction = _trend_from_change_pct(cp)
+        is_percent = kid in _PERCENT_KPIS
 
         unit = sf.get("unit", "") or facts.get("unit", "")
         label = _build_label(kid, facts.get("kpi_name", ""), sf)
         value = _format_value(kid, float(lv), unit)
 
+        cp = sf.get("change_pct")
         prior = sf.get("prior", {})
         cagr = sf.get("cagr")
         earliest = sf.get("earliest", {})
+
+        # For rate KPIs (growth, unemployment, inflation, debt %) a relative
+        # percentage change of the rate is misleading ("0.1% growth, -99% vs
+        # prior"). Use percentage-point deltas instead and base the trend on
+        # the pp movement. Level KPIs keep the relative percentage change.
+        change_pp: float | None = None
+        change_from_earliest_pp: float | None = None
+        if is_percent and prior.get("value") is not None:
+            change_pp = round(float(lv) - float(prior["value"]), 1)
+        if is_percent and earliest.get("value") is not None:
+            change_from_earliest_pp = round(float(lv) - float(earliest["value"]), 1)
+
+        if is_percent:
+            direction = _trend_from_change_pp(change_pp)
+        else:
+            direction = _trend_from_change_pct(cp)
 
         detail: dict[str, Any] = {
             "label": label,
@@ -181,16 +206,23 @@ def compute_ribbon_metrics(derived_facts: list[dict[str, Any]]) -> list[dict[str
         if unit:
             detail["unit"] = unit
 
-        if cp is not None:
-            detail["change_pct"] = round(cp, 2)
+        if is_percent:
+            if change_pp is not None:
+                detail["change_pp"] = change_pp
+            if change_from_earliest_pp is not None:
+                detail["change_from_earliest_pp"] = change_from_earliest_pp
+        else:
+            if cp is not None:
+                detail["change_pct"] = round(cp, 2)
+            if isinstance(cagr, dict) and cagr.get("cagr_pct") is not None:
+                detail["cagr"] = round(cagr["cagr_pct"], 2)
+            elif isinstance(cagr, (int, float)):
+                detail["cagr"] = round(cagr, 2)
+
         if prior.get("value") is not None:
             detail["prior_value"] = _format_value(kid, float(prior["value"]), unit)
             pd = prior.get("date", "")
             detail["prior_label"] = _year_from_iso(pd)
-        if isinstance(cagr, dict) and cagr.get("cagr_pct") is not None:
-            detail["cagr"] = round(cagr["cagr_pct"], 2)
-        elif isinstance(cagr, (int, float)):
-            detail["cagr"] = round(cagr, 2)
         if earliest.get("value") is not None:
             detail["earliest_value"] = _format_value(kid, float(earliest["value"]), unit)
             ed = earliest.get("date", "")
