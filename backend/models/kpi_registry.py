@@ -181,7 +181,7 @@ INSIGHT_LENSES: dict[str, InsightLens] = {
         notability_cues=[
             "Net FDI position (inward minus outward) — pre-computed in net_flow data.",
             "Abrupt reversals or large swings in inward FDI between periods.",
-            "FDI flows are inherently lumpy — distinguish trend from single-transaction noise.",
+            "FDI flows are inherently lumpy — read multi-year averages (about 3-5yr) and the overall trend, not single-year or single-quarter spikes.",
         ],
         context_hooks=[
             "Investment law reforms, foreign ownership liberalization, and special economic zone launches.",
@@ -195,7 +195,7 @@ INSIGHT_LENSES: dict[str, InsightLens] = {
             "Do not confuse FDI stock with FDI flow.",
         ],
         narrative_guidance=[
-            "Start with the descriptive trajectory of inflows and outflows across the period before interpreting.",
+            "Characterise inflows/outflows by their multi-year-average level and overall trajectory across the window — do not cite a single year or quarter as representative, since FDI is lumpy. Use the window-average level (window_summary.mean) and net_flow as the anchor.",
             "Connect FDI swings to specific policy reforms, zone launches, or geopolitical events.",
             "For SWF-active economies, note outward FDI as deliberate strategy, not capital flight.",
         ],

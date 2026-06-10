@@ -531,7 +531,9 @@ def build_brief_prompt(
         fdi_benchmark_block = (
             "\n\nFDI_BENCHMARK_CONTEXT (JSON) — authoritative comparator set for KPI 4:\n"
             f"```json\n{fdi_json}\n```\n"
-            "If you discuss KPI 4 (FDI), use these benchmark peers consistently in prose.\n"
+            "If you discuss KPI 4 (FDI), use these benchmark peers consistently in prose, "
+            "and frame movements as multi-year averages or the overall trend rather than "
+            "individual annual or quarterly data points (FDI is lumpy).\n"
         )
 
     user_content = (
