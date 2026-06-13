@@ -776,7 +776,7 @@ export default function InlineChartBlock({
               {hasOilOverlay && (
                 <Line type="linear" dataKey={OIL_OVERLAY_KEY} yAxisId="right" stroke={OIL_OVERLAY_COLOR}
                   strokeWidth={2} strokeDasharray="4 2" dot={false} connectNulls
-                  name={oilOverlay.indicator || 'Brent (LCU)'} />
+                  name={oilOverlay.indicator || 'Oil price (USD/bbl)'} />
               )}
               {hasFiscalOverlay && (
                 <>
@@ -811,7 +811,7 @@ export default function InlineChartBlock({
             {hasOilOverlay && (
               <div className="flex items-center gap-1.5">
                 <span className="w-3 border-t-2 border-dashed" style={{ borderColor: OIL_OVERLAY_COLOR }} />
-                <span className="text-slate-500">{oilOverlay.indicator || 'Oil price (SAR)'}</span>
+                <span className="text-slate-500">{oilOverlay.indicator || 'Oil price (USD/bbl)'}</span>
               </div>
             )}
             {hasFiscalOverlay && (

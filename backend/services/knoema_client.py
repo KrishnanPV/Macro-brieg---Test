@@ -11,7 +11,6 @@ from backend.config import EAP_HOST, EAP_APP_ID, EAP_APP_SECRET, DATASET, LAST_A
 from backend.models.kpi_registry import (
     SPECS_BY_ID, sorted_kpi_ids, resolve_unit_label,
     OIL_PRICE_INDICATOR, OIL_PRICE_FALLBACKS,
-    ISO3_TO_CURRENCY,
 )
 from backend.models.schemas import SeriesPoint, IndicatorSeries, KpiResult, FetchResponse
 
@@ -294,30 +293,31 @@ def fetch_oil_price_data(
     timerange: str = "2015-2026",
     frequency: str = "A",
 ) -> IndicatorSeries | None:
-    """Fetch oil price for *country* from Oxford Economics.
+    """Fetch the Brent oil price in USD/bbl for the *country* overlay.
 
-    Oxford stores "Oil price" per-country already in local currency,
-    so no FX conversion is needed.
+    Oil is a globally traded commodity quoted in USD/bbl, so the overlay uses
+    USD for every country rather than local currency. Oxford stores "Oil price"
+    per-country in LCU; fetching it for USA (whose LCU is USD) yields the
+    standard USD/bbl series.
     """
     _configure_api()
     clip_start, clip_end = _parse_timerange(timerange)
-    ccy = ISO3_TO_CURRENCY.get(country.upper(), "LCU")
 
     indicators = [OIL_PRICE_INDICATOR] + OIL_PRICE_FALLBACKS
     for ind in indicators:
         series, err = _fetch_indicator(
-            country, ind, frequency, timerange, clip_start, clip_end,
+            "USA", ind, frequency, timerange, clip_start, clip_end,
         )
         if series:
-            log.info("Oil overlay: found '%s' for %s (%d points)", ind, country, len(series.points))
+            log.info("Oil overlay: found '%s' in USD/bbl (%d points)", ind, len(series.points))
             return IndicatorSeries(
                 country=country,
-                indicator=f"Oil price ({ccy}/bbl)",
+                indicator="Oil price (USD/bbl)",
                 points=series.points,
-                unit=f"{ccy}/bbl",
+                unit="USD/bbl",
             )
         if err:
             log.debug("Oil overlay probe: %s", err)
 
-    log.warning("Oil overlay: could not fetch oil price for %s.", country)
+    log.warning("Oil overlay: could not fetch USD oil price.")
     return None

@@ -101,8 +101,8 @@ def sorted_kpi_ids(ids: list[str]) -> list[str]:
 # Auxiliary indicators (not KPIs — used for overlays / enrichment)
 # ---------------------------------------------------------------------------
 
-# Oil price — available per-country in LCU (already converted by Oxford).
-# Fetched using the target country code, not a global/world location.
+# Oil price — a global commodity quoted in USD/bbl. Oxford stores it per-country
+# in LCU; the overlay fetches the USD-denominated series (via USA) for all countries.
 OIL_PRICE_INDICATOR = "Oil price"
 OIL_PRICE_FALLBACKS: list[str] = []
 
@@ -378,7 +378,7 @@ INSIGHT_LENSES: dict[str, InsightLens] = {
             "Do not infer current-account balance from goods & services trade alone.",
             "Do not infer real volume growth from this chart — series are nominal.",
         ],
-        units_note="Nominal LCU. Each year shows two side-by-side bars: total Exports and total Imports of goods & services. The oil-price overlay (Brent in LCU/bbl) is on a secondary axis and is informational, not additive.",
+        units_note="Nominal LCU. Each year shows two side-by-side bars: total Exports and total Imports of goods & services. The oil-price overlay (Brent in USD/bbl) is on a secondary axis and is informational, not additive.",
         narrative_guidance=[
             "Lead with the trade balance trajectory: surplus vs deficit, widening vs narrowing.",
             "For oil-exporting economies, relate export swings to the Brent overlay on the right axis.",
