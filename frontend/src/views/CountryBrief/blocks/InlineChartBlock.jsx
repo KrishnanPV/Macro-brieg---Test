@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import {
   ComposedChart, Area, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, ReferenceArea, ReferenceLine,
+  ResponsiveContainer, ReferenceArea, ReferenceLine, LabelList,
 } from 'recharts'
 import { Copy, FileSpreadsheet, TrendingUp, X } from 'lucide-react'
 import ChartFrequencyToggle from '../../../components/ui/ChartFrequencyToggle'
@@ -144,6 +144,43 @@ function downloadBlob(filename, text, mime) {
 
 function slugify(s) {
   return String(s).replace(/[^\w\d]+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').slice(0, 60) || 'kpi'
+}
+
+function oilGdpTotalLabelContent(seriesKeys, rows) {
+  return (labelProps) => {
+    const x = labelProps.x ?? labelProps.viewBox?.x
+    const y = labelProps.y ?? labelProps.viewBox?.y
+    const width = labelProps.width ?? labelProps.viewBox?.width
+    const row = labelProps.payload ?? rows[labelProps.index]
+    if (x == null || y == null || width == null || !row) return null
+    const total = seriesKeys.reduce((sum, s) => {
+      const v = row[s.key]
+      return v != null ? sum + v : sum
+    }, 0)
+    return (
+      <text x={x + width / 2} y={y - 12} textAnchor="middle" dominantBaseline="auto"
+        fontSize={8} fontWeight={700} fill="#1e293b" style={{ fontFamily: 'inherit' }}>
+        {formatAbbrevNumber(total)}
+      </text>
+    )
+  }
+}
+
+function oilGdpSegmentLabel(dataKey, rows) {
+  return (props) => {
+    const x = props.x ?? props.viewBox?.x
+    const y = props.y ?? props.viewBox?.y
+    const width = props.width ?? props.viewBox?.width
+    const height = props.height ?? props.viewBox?.height
+    const segmentVal = rows[props.index]?.[dataKey]
+    if (x == null || y == null || !width || height == null || segmentVal == null) return null
+    return (
+      <text x={x + width / 2} y={y + height / 2} textAnchor="middle" dominantBaseline="middle"
+        fontSize={8} fontWeight={600} fill="#ffffff" style={{ fontFamily: 'inherit' }}>
+        {formatAbbrevNumber(segmentVal)}
+      </text>
+    )
+  }
 }
 
 const OIL_OVERLAY_KEY = '__oil_price__'
@@ -310,6 +347,7 @@ export default function InlineChartBlock({
   const isInflationKpi = lookupId === '7'
   const isGrowthSplitKpi = lookupId === '12'
   const isFiscalKpi = lookupId === '14'
+  const isOilGdpKpi = lookupId === '2'
   const isSideBySideBars = SIDE_BY_SIDE_BAR_KPIS.has(lookupId)
 
   const hasFdiBenchmark =
@@ -524,6 +562,7 @@ export default function InlineChartBlock({
   const ticks = isQuarterly ? rows.map(r => r.date) : computeAnnualTicks(rows)
   const fileBase = `kpi_${kpiId}_${slugify(kpiName)}`
   const activeVizMode = vizMode
+  const showAnnualBarLabels = isOilGdpKpi && effectiveFreq === 'A' && activeVizMode === 'bar'
   const fdiViewMode = hasFdiBenchmark
     ? (['chart', 'inflow', 'outflow'].includes(fdiFlowMode) ? fdiFlowMode : 'chart')
     : 'chart'
@@ -675,7 +714,7 @@ export default function InlineChartBlock({
           )}
           <ResponsiveContainer width="100%" height={chartHeight}>
             <ComposedChart key={`${activeVizMode}-${effectiveFreq}-${hasOilOverlay ? 'oil' : 'no-oil'}-${hasFiscalOverlay ? 'fiscal' : 'no-fiscal'}`} data={chartRows}
-              margin={{ top: activeVizMode === 'line' ? 18 : 5, right: (hasOilOverlay || hasFiscalOverlay) ? 36 : 24, bottom: 0, left: 0 }}>
+              margin={{ top: activeVizMode === 'line' ? 18 : showAnnualBarLabels ? 20 : 5, right: (hasOilOverlay || hasFiscalOverlay) ? 36 : 24, bottom: 0, left: 0 }}>
               {activeVizMode === 'line' && (
                 <defs>
                   {seriesKeys.map(sk => (
@@ -736,10 +775,21 @@ export default function InlineChartBlock({
                           <Bar key={sk.key} dataKey={sk.key} fill={sk.color}
                             {...stackProps}
                             yAxisId="left"
-                            label={skIdx === 0 ? (props) => {
-                              if (!keyPointIndices.has(props.index)) return null
-                              return <text x={props.x + props.width / 2} y={props.y + props.height / 2} textAnchor="middle" dominantBaseline="middle" fontSize={8} fontWeight={600} fill="#ffffff">{formatAbbrevNumber(props.value)}</text>
-                            } : false} />
+                            isAnimationActive={showAnnualBarLabels ? false : undefined}
+                            label={
+                              showAnnualBarLabels
+                                ? oilGdpSegmentLabel(sk.key, chartRows)
+                                : (!isOilGdpKpi && skIdx === 0
+                                    ? (props) => {
+                                        if (!keyPointIndices.has(props.index) || props.value == null) return null
+                                        return <text x={props.x + props.width / 2} y={props.y + props.height / 2} textAnchor="middle" dominantBaseline="middle" fontSize={8} fontWeight={600} fill="#ffffff" style={{ fontFamily: 'inherit' }}>{formatAbbrevNumber(props.value)}</text>
+                                      }
+                                    : false)
+                            }>
+                            {showAnnualBarLabels && skIdx === seriesKeys.length - 1 && (
+                              <LabelList content={oilGdpTotalLabelContent(seriesKeys, chartRows)} />
+                            )}
+                          </Bar>
                         )
                       })
                 )
@@ -755,9 +805,9 @@ export default function InlineChartBlock({
                           return (
                             <g key={props.index}>
                               <circle cx={props.cx} cy={props.cy} r={3} fill="#fff" stroke={sk.color} strokeWidth={2} />
-                              {skIdx === 0 && (
+                              {skIdx === 0 && !isOilGdpKpi && (
                                 <text x={props.cx} y={props.cy - 8} textAnchor="middle"
-                                  fontSize={9} fontWeight={600} fill={sk.color}>
+                                  fontSize={9} fontWeight={600} fill={sk.color} style={{ fontFamily: 'inherit' }}>
                                   {formatAbbrevNumber(v)}
                                 </text>
                               )}
