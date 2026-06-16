@@ -109,8 +109,6 @@ class CountryBriefGenerateRequest(BaseModel):
     start_year: int = 2015
     end_year: int = 2026
     focus: str | None = None
-    # Annual vs quarterly for all KPI series in this brief (where the source supports it).
-    chart_frequency: Literal["A", "Q"] = "A"
     # When True, runs the full hypothesis-driven investigation pipeline
     # (signal detection, Perplexity evidence search, event extraction, scored
     # insights) before generating the narrative.

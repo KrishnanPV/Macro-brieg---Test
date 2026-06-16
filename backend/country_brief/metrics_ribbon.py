@@ -22,6 +22,14 @@ def _quarter_label(iso_date: str) -> str:
     return f"Q{q} {y}"
 
 
+def _period_label(iso_date: str, frequency: str) -> str:
+    """Period label honest about granularity: 'Qn YYYY' for quarterly series,
+    'YYYY' otherwise. Prevents a quarterly value being shown as a bare year."""
+    if str(frequency or "").strip().upper() == "Q":
+        return _quarter_label(iso_date) or _year_from_iso(iso_date)
+    return _year_from_iso(iso_date)
+
+
 def _trend_from_change_pct(change_pct: float | None, *, threshold: float = 0.04) -> str:
     """Literal data trend: latest vs prior period."""
     if change_pct is None:
@@ -141,8 +149,8 @@ def _build_label(kpi_id: str, kpi_name: str, sf: dict[str, Any]) -> str:
         "9": "Population",
     }.get(kpi_id, kpi_name.split(",")[0][:40])
 
-    y = _year_from_iso(ld)
-    suffix = f" ({y})" if y else ""
+    period = _period_label(ld, sf.get("frequency"))
+    suffix = f" ({period})" if period else ""
 
     return f"{short}{suffix}"
 
@@ -219,14 +227,15 @@ def compute_ribbon_metrics(derived_facts: list[dict[str, Any]]) -> list[dict[str
             elif isinstance(cagr, (int, float)):
                 detail["cagr"] = round(cagr, 2)
 
+        freq = sf.get("frequency")
         if prior.get("value") is not None:
             detail["prior_value"] = _format_value(kid, float(prior["value"]), unit)
             pd = prior.get("date", "")
-            detail["prior_label"] = _year_from_iso(pd)
+            detail["prior_label"] = _period_label(pd, freq)
         if earliest.get("value") is not None:
             detail["earliest_value"] = _format_value(kid, float(earliest["value"]), unit)
             ed = earliest.get("date", "")
-            detail["earliest_label"] = _year_from_iso(ed)
+            detail["earliest_label"] = _period_label(ed, freq)
 
         out.append(detail)
 

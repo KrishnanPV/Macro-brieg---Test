@@ -18,10 +18,19 @@ def compute_derived_facts(results: list[dict]) -> list[dict]:
     facts: list[dict] = []
     for kpi_result in results:
         kpi_id = str(kpi_result.get("kpi_id", ""))
+        # Frequency of the series actually being summarized ("A" or "Q"). The
+        # analysis path prefers annual, but quarterly KPIs without annual data
+        # fall through as "Q". Tagging it lets the LLM know whether a value is a
+        # full-year figure or a single quarter, so calendar-year claims do not
+        # silently quote quarterly observations.
+        kpi_frequency = str(
+            kpi_result.get("frequency") or kpi_result.get("native_frequency") or ""
+        ).strip().upper()
         kpi_facts: dict[str, Any] = {
             "kpi_id": kpi_result["kpi_id"],
             "kpi_name": kpi_result["kpi_name"],
             "unit": kpi_result.get("unit", ""),
+            "frequency": kpi_frequency,
             "series_facts": [],
         }
 
@@ -36,6 +45,7 @@ def compute_derived_facts(results: list[dict]) -> list[dict]:
                     "country": s["country"],
                     "indicator": indicator_name,
                     "unit": series_unit,
+                    "frequency": kpi_frequency,
                     "note": "No non-null values.",
                 })
                 continue
@@ -53,6 +63,7 @@ def compute_derived_facts(results: list[dict]) -> list[dict]:
                 "country": s["country"],
                 "indicator": indicator_name,
                 "unit": series_unit,
+                "frequency": kpi_frequency,
                 "n_points": len(vals),
                 "earliest": {"date": earliest_date, "value": earliest_val},
                 "latest": {"date": latest_date, "value": latest_val},

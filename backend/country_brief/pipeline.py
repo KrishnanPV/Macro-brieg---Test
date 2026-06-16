@@ -69,13 +69,22 @@ def _ndjson(obj: dict[str, Any]) -> str:
 def _analysis_ready_results(results_raw: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
     """Return KPI payloads with a usable `series` list for analysis stages.
 
-    Country-brief analysis code consumes `series`; however, some economies only
-    publish annual observations for KPI families that are natively quarterly.
-    In those cases `fetch_kpi_data(..., dual_fetch=True)` leaves `series` empty
-    and places usable rows in `series_annual`.
+    Country-brief analysis code (derived facts, triage, the brief prompt, and the
+    metrics ribbon) consumes `series`. The brief narrates in calendar years, so
+    the grounding must be annual whenever annual data exists; otherwise the LLM
+    quotes a single quarter as if it were a full-year figure. This mirrors the
+    `prefer_annual_then_native` policy already used by the aggregation path
+    (`_select_series_for_aggregation`), keeping both paths consistent.
+
+    `fetch_kpi_data(..., dual_fetch=True)` puts quarterly rows in `series` and
+    annual rows in `series_annual`. We prefer `series_annual` and fall back to
+    the native (quarterly) `series` when no annual data is available, tagging the
+    chosen frequency on `item["frequency"]` so downstream consumers know what
+    they are quoting. The frontend chart payload (`results_raw`) is emitted
+    untouched before this selection, so chart toggling is unaffected.
     """
     normalized: list[dict[str, Any]] = []
-    annual_fallback_kpis: list[str] = []
+    annual_series_kpis: list[str] = []
     for raw in results_raw:
         item = dict(raw)
         series = item.get("series")
@@ -83,15 +92,22 @@ def _analysis_ready_results(results_raw: list[dict[str, Any]]) -> tuple[list[dic
         has_native = isinstance(series, list) and bool(series)
         has_annual = isinstance(annual_series, list) and bool(annual_series)
 
-        if not has_native and has_annual:
-            item["series"] = list(annual_series)
+        if has_annual:
+            item["series"] = [dict(s) for s in annual_series if isinstance(s, dict)]
             item["frequency"] = "A"
-            annual_fallback_kpis.append(str(item.get("kpi_id", "")).strip())
+            annual_series_kpis.append(str(item.get("kpi_id", "")).strip())
+        elif has_native:
+            # Keep native (quarterly) series, but make the frequency explicit so
+            # it can be surfaced to the model rather than silently conflated.
+            item["frequency"] = (
+                str(item.get("frequency") or item.get("native_frequency") or "").strip().upper()
+                or "Q"
+            )
 
         if isinstance(item.get("series"), list) and item.get("series"):
             normalized.append(item)
 
-    return normalized, annual_fallback_kpis
+    return normalized, annual_series_kpis
 
 
 def get_fdi_cache_entry(cache_key: str) -> dict[str, Any] | None:
@@ -789,11 +805,11 @@ def _run_pipeline_impl(
     results_raw = [r.model_dump() for r in fetch_resp.results]
     yield _ndjson({"type": "kpi_data", "content": results_raw})
 
-    valid_results, annual_fallback_kpis = _analysis_ready_results(results_raw)
-    if annual_fallback_kpis:
+    valid_results, annual_series_kpis = _analysis_ready_results(results_raw)
+    if annual_series_kpis:
         log.info(
-            "Country brief analysis using annual fallback series for %s (country=%s)",
-            ", ".join(annual_fallback_kpis),
+            "Country brief analysis grounding on annual series for %s (country=%s)",
+            ", ".join(annual_series_kpis),
             req.country,
         )
 

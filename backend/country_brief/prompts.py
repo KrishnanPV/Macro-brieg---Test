@@ -180,6 +180,9 @@ def _required_sections_for_kpis(
 def _compact_result_payload(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
     compact_results: list[dict[str, Any]] = []
     for result in results:
+        # "A" (annual) or "Q" (quarterly) for the series being summarized, so the
+        # model never reads a quarterly observation as a calendar-year figure.
+        frequency = str(result.get("frequency") or result.get("native_frequency") or "").strip().upper()
         compact_series: list[dict[str, Any]] = []
         for series in result.get("series") or []:
             numeric_points: list[dict[str, Any]] = []
@@ -200,6 +203,7 @@ def _compact_result_payload(results: list[dict[str, Any]]) -> list[dict[str, Any
             compact_series.append({
                 "indicator": series.get("indicator", ""),
                 "unit": series.get("unit") or result.get("unit", ""),
+                "frequency": frequency,
                 "start": numeric_points[0],
                 "end": numeric_points[-1],
                 "peak": peak,
@@ -209,6 +213,7 @@ def _compact_result_payload(results: list[dict[str, Any]]) -> list[dict[str, Any
             "kpi_id": str(result.get("kpi_id", "")),
             "kpi_name": result.get("kpi_name", ""),
             "unit": result.get("unit", ""),
+            "frequency": frequency,
             "series": compact_series,
         })
     return compact_results
@@ -216,12 +221,13 @@ def _compact_result_payload(results: list[dict[str, Any]]) -> list[dict[str, Any
 
 def _compact_derived_facts_payload(derived_facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     compact_facts: list[dict[str, Any]] = []
-    keep_series_keys = ("country", "indicator", "unit", "n_points", "earliest", "latest", "prior", "min", "max", "change_pct", "cagr")
+    keep_series_keys = ("country", "indicator", "unit", "frequency", "n_points", "earliest", "latest", "prior", "min", "max", "change_pct", "cagr")
     for fact in derived_facts:
         compact_fact: dict[str, Any] = {
             "kpi_id": str(fact.get("kpi_id", "")),
             "kpi_name": fact.get("kpi_name", ""),
             "unit": fact.get("unit", ""),
+            "frequency": str(fact.get("frequency") or "").strip().upper(),
             "series_facts": [],
         }
         for sf in fact.get("series_facts") or []:
