@@ -92,6 +92,8 @@ const SIDE_BY_SIDE_BAR_KPIS = new Set(['13', '14'])
 
 const NET_FDI_KEY = '__net_fdi__'
 const NET_FDI_COLOR = '#16a34a'
+const FDI_INFLOW_COLOR = SERIES_COLORS[1]   // blue
+const FDI_OUTFLOW_COLOR = SERIES_COLORS[0]  // navy
 const INWARD_RE = /inward/i
 const OUTWARD_RE = /outward/i
 
@@ -459,6 +461,16 @@ export default function InlineChartBlock({
   const fdiInwardKey = isFdiKpi ? seriesKeys.find(sk => INWARD_RE.test(sk.key))?.key : null
   const fdiOutwardKey = isFdiKpi ? seriesKeys.find(sk => OUTWARD_RE.test(sk.key))?.key : null
 
+  const chartSeriesKeys = useMemo(() => {
+    if (!isFdiKpi) return seriesKeys
+    return seriesKeys.map(sk => ({
+      ...sk,
+      color: INWARD_RE.test(sk.key) ? FDI_INFLOW_COLOR
+        : OUTWARD_RE.test(sk.key) ? FDI_OUTFLOW_COLOR
+        : sk.color,
+    }))
+  }, [seriesKeys, isFdiKpi])
+
   const fiscalRevenueKey = isFiscalKpi ? seriesKeys.find(sk => REVENUE_RE.test(sk.key))?.key : null
   const fiscalExpenditureKey = isFiscalKpi ? seriesKeys.find(sk => EXPENDITURE_RE.test(sk.key))?.key : null
   const hasFiscalOverlay = !!(isFiscalKpi && fiscalRevenueKey && fiscalExpenditureKey)
@@ -567,6 +579,7 @@ export default function InlineChartBlock({
     ? (['chart', 'inflow', 'outflow'].includes(fdiFlowMode) ? fdiFlowMode : 'chart')
     : 'chart'
   const isBenchmarkMode = isFdiKpi && fdiViewMode !== 'chart'
+  const isFdiDivergingBars = isFdiKpi && activeVizMode === 'bar' && !!fdiInwardKey && !!fdiOutwardKey
 
   const exportSeriesKeys = hasFiscalOverlay
     ? [...seriesKeys, { key: 'Fiscal balance', color: FISCAL_BALANCE_COLOR }]
@@ -714,10 +727,11 @@ export default function InlineChartBlock({
           )}
           <ResponsiveContainer width="100%" height={chartHeight}>
             <ComposedChart key={`${activeVizMode}-${effectiveFreq}-${hasOilOverlay ? 'oil' : 'no-oil'}-${hasFiscalOverlay ? 'fiscal' : 'no-fiscal'}`} data={chartRows}
-              margin={{ top: activeVizMode === 'line' ? 18 : showAnnualBarLabels ? 20 : 5, right: (hasOilOverlay || hasFiscalOverlay) ? 36 : 24, bottom: 0, left: 0 }}>
+              margin={{ top: activeVizMode === 'line' ? 18 : showAnnualBarLabels ? 20 : 5, right: (hasOilOverlay || hasFiscalOverlay) ? 36 : 24, bottom: 0, left: 0 }}
+              {...(isFdiDivergingBars ? { stackOffset: 'sign' } : {})}>
               {activeVizMode === 'line' && (
                 <defs>
-                  {seriesKeys.map(sk => (
+                  {chartSeriesKeys.map(sk => (
                     <linearGradient key={sk.key} id={`brief-grad-${lookupId}-${sk.key.replace(/\W/g, '_')}`} x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor={sk.color} stopOpacity={0.15} />
                       <stop offset="95%" stopColor={sk.color} stopOpacity={0} />
@@ -760,12 +774,12 @@ export default function InlineChartBlock({
               {activeVizMode === 'bar'
                 ? (isFdiKpi && fdiInwardKey && fdiOutwardKey
                   ? <>
-                      <Bar dataKey={fdiInwardKey} fill={seriesKeys.find(sk => sk.key === fdiInwardKey)?.color || SERIES_COLORS[0]} yAxisId="left" name={fdiInwardKey}
+                      <Bar dataKey={fdiInwardKey} stackId="fdi" fill={FDI_INFLOW_COLOR} yAxisId="left" name={fdiInwardKey}
                         label={(props) => {
                           if (!keyPointIndices.has(props.index)) return null
                           return <text x={props.x + props.width / 2} y={props.y + props.height / 2} textAnchor="middle" dominantBaseline="middle" fontSize={8} fontWeight={600} fill="#ffffff">{formatAbbrevNumber(props.value)}</text>
                         }} />
-                      <Bar dataKey="__fdi_outward_neg__" fill={seriesKeys.find(sk => sk.key === fdiOutwardKey)?.color || SERIES_COLORS[1]} yAxisId="left" name={fdiOutwardKey} />
+                      <Bar dataKey="__fdi_outward_neg__" stackId="fdi" fill={FDI_OUTFLOW_COLOR} yAxisId="left" name={fdiOutwardKey} />
                       <Line type="linear" dataKey={NET_FDI_KEY} yAxisId="left" stroke={NET_FDI_COLOR}
                         strokeWidth={2} dot={false} name="Net FDI" />
                     </>
@@ -794,7 +808,7 @@ export default function InlineChartBlock({
                       })
                 )
                 : <>
-                    {seriesKeys.map((sk, skIdx) => (
+                    {chartSeriesKeys.map((sk, skIdx) => (
                       <Area key={sk.key} type="linear" dataKey={sk.key} stroke={sk.color}
                         fill={`url(#brief-grad-${lookupId}-${sk.key.replace(/\W/g, '_')})`}
                         strokeWidth={2} yAxisId="left"
@@ -846,7 +860,7 @@ export default function InlineChartBlock({
         </div>
         {(seriesKeys.length > 1 || hasOilOverlay || hasFiscalOverlay || (isFdiKpi && fdiInwardKey)) && (
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 pt-1 text-[10px]">
-            {seriesKeys.map(sk => (
+            {chartSeriesKeys.map(sk => (
               <div key={sk.key} className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full" style={{ backgroundColor: sk.color }} />
                 <span className="text-slate-500">{sk.key}</span>
