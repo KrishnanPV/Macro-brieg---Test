@@ -50,22 +50,100 @@ function CountrySelector({ countryOptions, countryNames, selectedCountry, onSele
   )
 }
 
-function StreamingProgress({ statusMessage, streamingText }) {
+function StreamingProgress({ statusMessage, steps = [], countryLabel, periodLabel }) {
+  const hasSteps = steps.length > 0
+  const doneCount = steps.filter(s => s.state === 'done').length
+
   return (
-    <div className="max-w-4xl mx-auto px-6 py-16">
-      <div className="text-center mb-8">
-        <div className="inline-flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200/60 rounded-2xl">
-          <Loader2 className="w-5 h-5 animate-spin text-indigo-600" />
-          <span className="text-sm font-medium text-indigo-700">{statusMessage || 'Generating brief...'}</span>
-        </div>
+    <div className="max-w-2xl mx-auto px-6 py-12">
+      <div className="mb-8">
+        <p className="text-[10px] font-semibold text-indigo-500 uppercase tracking-[0.18em] mb-1.5">
+          Generating brief
+        </p>
+        <h1 className="text-xl font-bold text-slate-800">
+          {countryLabel || 'Country brief'}
+        </h1>
+        {periodLabel && (
+          <p className="text-xs text-slate-400 mt-0.5">{periodLabel}</p>
+        )}
       </div>
-      {streamingText && (
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm p-6 max-h-96 overflow-y-auto">
-          <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider mb-3">Preview</p>
-          <div className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap opacity-60">
-            {streamingText.slice(-1500)}
-          </div>
+
+      {!hasSteps ? (
+        <div className="inline-flex items-center gap-3 px-5 py-3 bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200/60 rounded-2xl">
+          <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+          <span className="text-sm font-medium text-indigo-700">{statusMessage || 'Starting…'}</span>
         </div>
+      ) : (
+        <ol className="relative">
+          {steps.map((step, idx) => {
+            const isLast = idx === steps.length - 1
+            const isRunning = step.state === 'running'
+            const isDone = step.state === 'done'
+            const isPending = !isRunning && !isDone
+
+            return (
+              <li key={step.id} className="relative flex gap-3.5 pb-5 last:pb-0">
+                {/* Connector rail */}
+                {!isLast && (
+                  <span
+                    className={`absolute left-[13px] top-7 bottom-0 w-px ${
+                      isDone ? 'bg-indigo-200' : 'bg-slate-200'
+                    }`}
+                    aria-hidden="true"
+                  />
+                )}
+
+                {/* Node */}
+                <span className="relative z-10 shrink-0 mt-0.5">
+                  {isDone ? (
+                    <CheckCircle2 className="w-[27px] h-[27px] text-emerald-500 bg-white rounded-full" />
+                  ) : isRunning ? (
+                    <span className="flex items-center justify-center w-[27px] h-[27px] rounded-full bg-indigo-50 border border-indigo-200">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                    </span>
+                  ) : (
+                    <span className="flex items-center justify-center w-[27px] h-[27px] rounded-full bg-white border-2 border-slate-200">
+                      <span className="w-1.5 h-1.5 rounded-full bg-slate-300" />
+                    </span>
+                  )}
+                </span>
+
+                {/* Label + detail */}
+                <div className="min-w-0 pt-0.5">
+                  <p
+                    className={`text-sm leading-snug transition-colors ${
+                      isPending
+                        ? 'text-slate-300 font-medium'
+                        : isRunning
+                          ? 'text-slate-800 font-semibold'
+                          : 'text-slate-600 font-medium'
+                    }`}
+                  >
+                    {step.label}
+                  </p>
+
+                  {isRunning && statusMessage && (
+                    <p className="text-xs text-slate-400 mt-0.5 leading-snug truncate">
+                      {statusMessage}
+                    </p>
+                  )}
+
+                  {isDone && step.detail && (
+                    <span className="inline-flex items-center mt-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-600 text-[11px] font-medium">
+                      {step.detail}
+                    </span>
+                  )}
+                </div>
+              </li>
+            )
+          })}
+        </ol>
+      )}
+
+      {hasSteps && (
+        <p className="text-[11px] text-slate-400 mt-6">
+          {doneCount} of {steps.length} steps complete
+        </p>
       )}
     </div>
   )
@@ -516,7 +594,7 @@ export default function CountryBrief() {
   const [focusMode, setFocusMode] = useState(false)
   const {
     countryOptions, countryNames, selectedCountry,
-    startYear, endYear, focus, generating, statusMessage, streamingText,
+    startYear, endYear, focus, generating, statusMessage, steps,
     blocks, kpiDataCache, fdiBenchmark, fdiFlowMode, triageResults, error, briefGenerated, newsArticles,
     setSelectedCountry, setStartYear, setEndYear, setFocus,
     generateBrief, resetBrief, openSidebar, setFdiFlowMode,
@@ -903,7 +981,12 @@ export default function CountryBrief() {
   if (generating && !briefGenerated) {
     return (
       <div className="h-full overflow-y-auto">
-        <StreamingProgress statusMessage={statusMessage} streamingText={streamingText} />
+        <StreamingProgress
+          statusMessage={statusMessage}
+          steps={steps}
+          countryLabel={countryNames[selectedCountry] || selectedCountry}
+          periodLabel={`${startYear}–${endYear} · ${generationMode === 'deep' ? 'Deep' : 'Light'} mode`}
+        />
       </div>
     )
   }

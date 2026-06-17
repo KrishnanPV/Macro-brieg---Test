@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import json
 import logging
+import queue
 import re
+import threading
 import uuid
 from datetime import datetime
 from typing import Any, Iterator
@@ -64,6 +66,55 @@ _fdi_benchmark_cache: dict[str, dict[str, Any]] = {}
 
 def _ndjson(obj: dict[str, Any]) -> str:
     return json.dumps(obj, default=str) + "\n"
+
+
+# Canonical, ordered loading steps surfaced to the frontend timeline. Labels are
+# the single source of truth for the step display name; detail strings (counts)
+# are attached when a step transitions to "done".
+_STEP_LABELS: dict[str, str] = {
+    "fetch_data": "Fetching market data",
+    "fdi_benchmark": "Benchmarking FDI peers",
+    "triage": "Triaging indicators",
+    "signals": "Extracting signals",
+    "hypotheses": "Forming hypotheses",
+    "news": "Researching news",
+    "insights": "Synthesizing insights",
+    "writing": "Writing the brief",
+    "finalizing": "Finalizing",
+}
+
+
+def _step(step_id: str, state: str, detail: str | None = None) -> str:
+    """NDJSON line for a loading-timeline step transition.
+
+    ``state`` is one of ``pending`` | ``running`` | ``done``. ``detail`` is a
+    short count summary surfaced once a step completes.
+    """
+    payload: dict[str, Any] = {
+        "type": "step",
+        "id": step_id,
+        "label": _STEP_LABELS.get(step_id, step_id),
+        "state": state,
+    }
+    if detail is not None:
+        payload["detail"] = detail
+    return _ndjson(payload)
+
+
+def _planned_step_ids(*, deep_analysis: bool, has_fdi: bool) -> list[str]:
+    """Ordered step ids for this run, gated by mode and KPI scope."""
+    ids = ["fetch_data"]
+    if has_fdi:
+        ids.append("fdi_benchmark")
+    ids.append("triage")
+    ids.append("signals")
+    if deep_analysis:
+        ids.append("hypotheses")
+        ids.append("news")
+    ids.append("insights")
+    ids.append("writing")
+    ids.append("finalizing")
+    return ids
 
 
 def _analysis_ready_results(results_raw: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
@@ -758,7 +809,14 @@ def _run_pipeline_impl(
         available_ids.append("3")
     timerange = f"{req.start_year}-{req.end_year}"
 
+    # Pre-declare the full ordered step list so the frontend renders the whole
+    # checklist up front (greyed out) and fills it in as the run progresses.
+    has_fdi_step = "4" in available_ids
+    for sid in _planned_step_ids(deep_analysis=deep_analysis, has_fdi=has_fdi_step):
+        yield _step(sid, "pending")
+
     # ── Phase 1: Fetch KPI data ──────────────────────────────────────────
+    yield _step("fetch_data", "running")
     yield _ndjson({"type": "status", "content": f"Fetching data for {len(available_ids)} KPIs..."})
 
     fetch_resp = fetch_kpi_data(
@@ -804,6 +862,7 @@ def _run_pipeline_impl(
 
     results_raw = [r.model_dump() for r in fetch_resp.results]
     yield _ndjson({"type": "kpi_data", "content": results_raw})
+    yield _step("fetch_data", "done", f"{len(results_raw)} KPIs fetched")
 
     valid_results, annual_series_kpis = _analysis_ready_results(results_raw)
     if annual_series_kpis:
@@ -815,6 +874,7 @@ def _run_pipeline_impl(
 
     fdi_benchmark_payload: dict[str, Any] | None = None
     if "4" in available_ids:
+        yield _step("fdi_benchmark", "running")
         yield _ndjson({"type": "status", "content": "Selecting FDI benchmark peers..."})
         benchmark_selection = select_benchmark_countries(
             req.country,
@@ -862,9 +922,16 @@ def _run_pipeline_impl(
                 fdi_benchmark_payload["min_year"] = min(all_years) if all_years else req.start_year
                 fdi_benchmark_payload["max_year"] = max(all_years) if all_years else req.end_year
                 yield _ndjson({"type": "fdi_benchmark", "content": fdi_benchmark_payload})
+        peer_count = max(0, len(deduped_benchmark_countries) - 1)
+        yield _step(
+            "fdi_benchmark",
+            "done",
+            f"{peer_count} peer{'s' if peer_count != 1 else ''}",
+        )
 
     # ── Phase 2: KPI triage + lab workflow analysis ──────────────────────
-    yield _ndjson({"type": "status", "content": "Detecting signals..."})
+    yield _step("triage", "running")
+    yield _ndjson({"type": "status", "content": "Triaging indicators..."})
 
     derived_facts = compute_derived_facts(valid_results)
     scores = triage_kpis(derived_facts)
@@ -909,6 +976,20 @@ def _run_pipeline_impl(
         selected_kpi_ids = [kid for kid in available_ids if kid in ids_with_data]
     notable_ids = selected_kpi_ids
 
+    notable_count = sum(1 for s in scores if s.notable)
+    filtered_count = sum(1 for s in scores if not s.notable)
+    yield _step(
+        "triage",
+        "done",
+        f"{notable_count} selected, {filtered_count} filtered",
+    )
+
+    # ── Phase 3: Aggregated insights analysis ────────────────────────────
+    # run_for_country is a blocking, multi-stage call (the slow LLM work lives
+    # here). To step the timeline in real time we run it on a worker thread and
+    # bridge its on_progress callback through a queue, draining step events as
+    # each sub-stage (signals -> hypotheses -> news -> insights) completes.
+    yield _step("signals", "running")
     yield _ndjson({
         "type": "status",
         "content": (
@@ -916,17 +997,75 @@ def _run_pipeline_impl(
             f"for {len(selected_kpi_ids)} selected KPIs..."
         ),
     })
-    if deep_analysis:
-        yield _ndjson({"type": "status", "content": "Searching for correlated news..."})
+
+    # Detail copy keyed by analysis step id; populated from the callback counts.
+    def _analysis_detail(step_id: str, count: int) -> str:
+        if step_id == "signals":
+            return f"{count} signal{'s' if count != 1 else ''} extracted"
+        if step_id == "hypotheses":
+            return f"{count} hypothes{'es' if count != 1 else 'is'} generated"
+        if step_id == "news":
+            return f"{count} article{'s' if count != 1 else ''} found"
+        if step_id == "insights":
+            return f"{count} theme{'s' if count != 1 else ''}"
+        return str(count)
+
+    progress_queue: "queue.Queue[tuple[str, str]]" = queue.Queue()
+
+    def _on_analysis_progress(step_id: str, detail: dict[str, Any]) -> None:
+        count = int(detail.get("count", 0))
+        progress_queue.put((step_id, _analysis_detail(step_id, count)))
 
     kpi_results_by_id = {str(r.get("kpi_id", "")): r for r in valid_results}
-    signal_interpretation, articles_flat, prompt_bundle = run_for_country(
-        country=req.country,
-        start_year=req.start_year,
-        end_year=req.end_year,
-        selected_kpi_ids=selected_kpi_ids,
-        kpi_results=kpi_results_by_id,
-        deep_analysis=deep_analysis,
+    analysis_result: dict[str, Any] = {}
+    analysis_error: list[BaseException] = []
+
+    def _run_analysis() -> None:
+        try:
+            analysis_result["value"] = run_for_country(
+                country=req.country,
+                start_year=req.start_year,
+                end_year=req.end_year,
+                selected_kpi_ids=selected_kpi_ids,
+                kpi_results=kpi_results_by_id,
+                deep_analysis=deep_analysis,
+                on_progress=_on_analysis_progress,
+            )
+        except BaseException as exc:  # surfaced after the drain loop
+            analysis_error.append(exc)
+
+    worker = threading.Thread(target=_run_analysis, daemon=True)
+    worker.start()
+
+    # Ordered analysis steps for this run; used to light up the successor step
+    # as "running" once the current one reports done.
+    analysis_step_order = ["signals"]
+    if deep_analysis:
+        analysis_step_order += ["hypotheses", "news"]
+    analysis_step_order.append("insights")
+
+    # Drain progress events in real time. The order in which the callback fires
+    # (signals -> hypotheses -> news -> insights) defines the timeline: each
+    # completed step is marked done and the next planned one is lit as running.
+    while True:
+        try:
+            step_id, detail_text = progress_queue.get(timeout=0.1)
+        except queue.Empty:
+            if not worker.is_alive():
+                break
+            continue
+        yield _step(step_id, "done", detail_text)
+        if step_id in analysis_step_order:
+            pos = analysis_step_order.index(step_id)
+            if pos + 1 < len(analysis_step_order):
+                yield _step(analysis_step_order[pos + 1], "running")
+
+    worker.join()
+    if analysis_error:
+        raise analysis_error[0]
+
+    signal_interpretation, articles_flat, prompt_bundle = analysis_result.get(
+        "value", ({}, [], None)
     )
 
     if deep_analysis:
@@ -948,6 +1087,7 @@ def _run_pipeline_impl(
     })
 
     # ── Phase 4: Agent 3 — Brief Writer ──────────────────────────────────
+    yield _step("writing", "running")
     yield _ndjson({"type": "status", "content": "Writing brief..."})
 
     messages = build_brief_prompt(
@@ -1046,7 +1186,10 @@ def _run_pipeline_impl(
         elif event_type == "full_text":
             full_text = payload
 
+    yield _step("writing", "done", "complete")
+
     # ── Phase 5: Parse and finalize ──────────────────────────────────────
+    yield _step("finalizing", "running")
     required_sections = _required_section_titles(ids_with_data, profile=profile)
     guarded_text, guardrail_issues = _apply_brief_contract_guardrails(
         full_text,
@@ -1085,6 +1228,13 @@ def _run_pipeline_impl(
                 "Headline numeric inconsistencies vs canonical figures: %s",
                 "; ".join(consistency_warnings),
             )
+
+    section_count = sum(1 for b in blocks if b.get("type") == "section")
+    yield _step(
+        "finalizing",
+        "done",
+        f"{section_count} section{'s' if section_count != 1 else ''}",
+    )
 
     yield _ndjson({"type": "blocks", "content": blocks})
     yield _ndjson({"type": "done"})

@@ -46,6 +46,8 @@ const useCountryBriefStore = create(
       // --- Generation state ---
       generating: false,
       statusMessage: '',
+      /** Ordered loading-timeline steps: { id, label, state, detail }. */
+      steps: [],
       streamingText: '',
       blocks: [],
       kpiDataCache: [],
@@ -72,7 +74,7 @@ const useCountryBriefStore = create(
       setSelectedCountry: (code) => set({
         selectedCountry: code, briefGenerated: false, blocks: [],
         kpiDataCache: [], fdiBenchmark: null, fdiBenchmarkCacheKey: null, fdiFlowMode: 'chart',
-        triageResults: [], error: '', streamingText: '',
+        triageResults: [], error: '', streamingText: '', steps: [],
         newsArticles: [],
         sidebarOpen: false, activeSectionIndex: null, sidebarHistory: {},
       }),
@@ -215,7 +217,7 @@ const useCountryBriefStore = create(
         selectedCountry: null, briefGenerated: false, blocks: [],
         kpiDataCache: [], fdiBenchmark: null, fdiBenchmarkCacheKey: null, fdiFlowMode: 'chart',
         triageResults: [], error: '', focus: '',
-        streamingText: '', statusMessage: '', generating: false,
+        streamingText: '', statusMessage: '', steps: [], generating: false,
         newsArticles: [],
         sidebarOpen: false, activeSectionIndex: null, sidebarHistory: {},
         workspaceId: get().workspaceId,
@@ -319,7 +321,7 @@ const useCountryBriefStore = create(
         set({
           generating: true, error: '', blocks: [], kpiDataCache: [],
           fdiBenchmark: null, fdiBenchmarkCacheKey: null, fdiFlowMode: 'chart',
-          triageResults: [], streamingText: '', statusMessage: 'Starting...',
+          triageResults: [], streamingText: '', statusMessage: 'Starting...', steps: [],
           briefGenerated: false, newsArticles: [], sidebarOpen: false, sidebarHistory: {},
         })
 
@@ -367,6 +369,20 @@ const useCountryBriefStore = create(
 
                 if (chunk.type === 'status') {
                   set({ statusMessage: chunk.content })
+                } else if (chunk.type === 'step') {
+                  set((s) => {
+                    const next = [...s.steps]
+                    const idx = next.findIndex((st) => st.id === chunk.id)
+                    const incoming = {
+                      id: chunk.id,
+                      label: chunk.label ?? (idx >= 0 ? next[idx].label : chunk.id),
+                      state: chunk.state ?? 'pending',
+                      detail: chunk.detail ?? (idx >= 0 ? next[idx].detail : undefined),
+                    }
+                    if (idx >= 0) next[idx] = { ...next[idx], ...incoming }
+                    else next.push(incoming)
+                    return { steps: next }
+                  })
                 } else if (chunk.type === 'kpi_data') {
                   set({ kpiDataCache: chunk.content })
                 } else if (chunk.type === 'fdi_benchmark') {

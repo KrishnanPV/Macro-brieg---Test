@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import math
 import re
-from typing import Any
+from typing import Any, Callable
 
 from backend.insights_pipeline.stages import (
     evaluator,
@@ -437,8 +437,21 @@ def run_for_country(
     kpi_results: dict[str, dict[str, Any]],
     deep_analysis: bool,
     reasoning_model: str = REASONING_MODEL,
+    on_progress: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any] | None]:
-    """Run aggregated insights composition for country brief generation."""
+    """Run aggregated insights composition for country brief generation.
+
+    ``on_progress`` (optional) is invoked with ``(step_id, detail)`` after each
+    analysis sub-stage completes so callers can surface live counts. Step ids:
+    ``"signals"``, ``"hypotheses"``, ``"news"``, ``"insights"``.
+    """
+    def _report(step_id: str, detail: dict[str, Any]) -> None:
+        if on_progress is not None:
+            try:
+                on_progress(step_id, detail)
+            except Exception:
+                log.debug("on_progress callback failed for step %s", step_id, exc_info=True)
+
     payload = _bundle_kpi_payload(selected_kpi_ids=selected_kpi_ids, kpi_results=kpi_results)
     if not payload.get("series"):
         interpretation = {
@@ -448,6 +461,11 @@ def run_for_country(
             "cross_kpi_connections": [],
             "composition_shifts": [],
         }
+        _report("signals", {"count": 0})
+        if deep_analysis:
+            _report("hypotheses", {"count": 0})
+            _report("news", {"count": 0})
+        _report("insights", {"count": 0})
         return interpretation, [], None
 
     try:
@@ -461,6 +479,7 @@ def run_for_country(
         signal_output = {"raw_signals": [], "selected_signals": []}
     raw_signals = _as_dict_list(signal_output.get("raw_signals"))
     selected_signals = _filter_top_signals_per_kpi(raw_signals, selected_kpi_ids)
+    _report("signals", {"count": len(selected_signals)})
 
     kpi_scope_name = _kpi_scope_name(selected_kpi_ids, kpi_results)
     country_name = ISO3_TO_NAME.get(str(country).upper().strip(), str(country))
@@ -511,6 +530,10 @@ def run_for_country(
                 except Exception:
                     log.exception("Aggregated planned-queries news research failed")
                     events = []
+
+    if deep_analysis:
+        _report("hypotheses", {"count": len(hypotheses)})
+        _report("news", {"count": len(events)})
 
     try:
         link_output = signal_event_linker.link(selected_signals, events)
@@ -563,6 +586,7 @@ def run_for_country(
         final_insights=final_insights,
         selected_kpi_ids=selected_kpi_ids,
     )
+    _report("insights", {"count": len(themes[:4])})
     articles_flat: list[dict[str, Any]] = []
     prompt_articles: list[dict[str, Any]] = []
     for idx, event in enumerate(events, start=1):
